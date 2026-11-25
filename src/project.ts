@@ -77,7 +77,7 @@ export async function loadFiles(files: { name: string; data: Uint8Array }[]): Pr
     const { dbs, warn: w2 } = dbLayouts(blocks);
     // blocks that appear twice (same name): keep the last one
     const seen = new Map<string, number>(); blocks.forEach((b, i) => seen.set(b.kind + ':' + b.name, i));
-    const uniq = blocks.filter((b, i) => seen.get(b.kind + ':' + b.name) === i).map(b => (b.kind === 'DATA_BLOCK' ? { ...b, text: '' } : b));
+    const uniq = blocks.filter((b, i) => seen.get(b.kind + ':' + b.name) === i);
     return { kind: 'project', proj: { blocks: uniq, symbols, dbs, mnem: detectMnem(srcs.join('\n')), files: used, warn: warn.concat(w2), symCount: nSym } };
 }
 

@@ -2,6 +2,9 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { compile, Machine, TIMER_NAME, Ctx } from './engine';
 import { Proj, loadFiles, idbPut, idbGet, idbDel } from './project';
 import { EXAMPLES } from './examples';
+import { BlockSheet, KIND_LABEL } from './BlockSheet';
+const GROUP_NAME: Record<string, string> = { OB: 'Organization blocks', FB: 'Function blocks', FC: 'Functions', DB: 'Data blocks', UDT: 'User data types' };
+const titleOf = (t: string) => { const m = /^\s*TITLE\s*=(.*)$/m.exec(t.split('\n').slice(0, 6).join('\n')); return m ? m[1].trim() : ''; };
 const WELCOME = '// Welcome. Open "Examples" to pick a ready-made program,\n// load your own AWL/ZIP project, or type STL here.\n';
 
 const hex = (v: number, n = 8) => (v >>> 0).toString(16).toUpperCase().padStart(n, '0');
@@ -38,6 +41,8 @@ export function App() {
     const mach = m.current;
     const [text, setText] = useState(() => lsGet(LS_DRAFT) || WELCOME);
     const [pick, setPick] = useState(false);
+    const [viewBlk, setViewBlk] = useState('');
+    const [bfilter, setBfilter] = useState('');
     const [exId, setExId] = useState('');
     const [progs, setProgs] = useState(loadProgs);
     const [saveName, setSaveName] = useState('');
@@ -248,19 +253,37 @@ export function App() {
         {proj && <div className="s7-panel">
             <div className="s7-h">{'Loaded project'}<span>{proj.symCount} {'symbols |'} {Object.keys(proj.dbs).length} DB</span></div>
             <div className="s7-hint" style={{ marginTop: 0 }}>{proj.files.join(' | ')}</div>
-            {verdicts.map((v: any) => <div className={'s7-tc' + (blk === v.name ? ' q' : '')} key={v.name}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                    <div className="nm" style={{ direction: 'ltr', textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis' }}>{v.name}<small>{v.kind.replace('_', ' ')} | {v.lines} {'lines'}</small></div>
-                    <div className="s7-hint" style={{ marginTop: 2, color: v.err ? '#ff8a80' : v.skip ? '#ffcc80' : '#81c995' }}>
-                        {v.err ? 'Cannot load: ' + v.err + ' error(s)' : v.skip ? 'Loads (' + v.ins + ' instructions) with ' + v.skip + ' skipped CALL(s)' : 'Loads (' + v.ins + ' instructions)'}{v.virt ? ' | ' + v.virt + ' virtual DB field(s)' : ''}
-                    </div>
-                </div>
-                <button type="button" className="s7-chip" onClick={() => pickBlock(v.name)}>{'Open'}</button>
-            </div>)}
-            {proj.blocks.filter(b => b.kind === 'DATA_BLOCK').length > 0 && <div className="s7-hint">+ {proj.blocks.filter(b => b.kind === 'DATA_BLOCK').length} {'DB block (declarations only, loaded automatically)'}</div>}
+            <input className="s7-sel" style={{ width: '100%', marginBottom: 8 }} dir="ltr" value={bfilter} placeholder={'Filter blocks by name or title'} aria-label="Filter blocks" onChange={e => setBfilter(e.target.value)} />
+            {['OB', 'FB', 'FC', 'DB', 'UDT'].map(g => {
+                const items = proj.blocks.filter(x => KIND_LABEL[x.kind] === g && (!bfilter || (x.name + ' ' + titleOf(x.text)).toLowerCase().includes(bfilter.toLowerCase())));
+                const total = proj.blocks.filter(x => KIND_LABEL[x.kind] === g).length;
+                if (!total) return null;
+                return <details className="s7-grp" key={g} open={g !== 'DB' && g !== 'UDT' || !!bfilter}>
+                    <summary>{g}<span>{GROUP_NAME[g]} | {bfilter ? items.length + ' / ' : ''}{total}</span></summary>
+                    {items.slice(0, 200).map(x => {
+                        const v: any = verdicts.find((y: any) => y.name === x.name);
+                        return <div className={'s7-tc' + (blk === x.name ? ' q' : '')} key={x.name}>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                                <div className="nm" style={{ direction: 'ltr', textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis' }}>{x.name}<small>{x.text.split('\n').length} {'lines'}</small></div>
+                                {titleOf(x.text) && <div className="s7-hint" style={{ marginTop: 2 }}>{titleOf(x.text)}</div>}
+                                {v && <div className="s7-hint" style={{ marginTop: 2, color: v.err ? '#ff8a80' : v.skip ? '#ffcc80' : '#81c995' }}>
+                                    {v.err ? 'Cannot load: ' + v.err + ' error(s)' : v.skip ? 'Loads (' + v.ins + ' instructions) with ' + v.skip + ' skipped CALL(s)' : 'Loads (' + v.ins + ' instructions)'}{v.virt ? ' | ' + v.virt + ' virtual DB field(s)' : ''}
+                                </div>}
+                            </div>
+                            <button type="button" className="s7-chip" onClick={() => setViewBlk(x.name)}>{'View'}</button>
+                            {v && <button type="button" className="s7-chip" onClick={() => pickBlock(x.name)}>{'Load'}</button>}
+                        </div>;
+                    })}
+                    {items.length > 200 && <div className="s7-hint">{'Showing 200. Use the filter to narrow.'}</div>}
+                </details>;
+            })}
             {proj.warn.length > 0 && <div className="s7-hint">{proj.warn.slice(0, 3).join(' | ')}</div>}
             <div className="s7-row"><button type="button" className="s7-chip" onClick={() => { setProj(null); setBlk(''); idbDel('project'); setFileMsg('Loaded project cleared'); }}>{'Clear project'}</button></div>
         </div>}
+
+        {proj && viewBlk && (() => { const vb = proj.blocks.find(x => x.name === viewBlk); if (!vb) return null; const vv: any = verdicts.find((y: any) => y.name === viewBlk);
+            return <BlockSheet b={vb} layout={vb.db ? proj.dbs[vb.db] : undefined} status={vv ? (vv.err ? 'Cannot load: ' + vv.err + ' error(s)' : 'Loads (' + vv.ins + ' instructions)' + (vv.skip ? ', ' + vv.skip + ' skipped CALL(s)' : '')) : undefined}
+                onLoad={vv ? () => { pickBlock(viewBlk); setViewBlk(''); } : undefined} onClose={() => setViewBlk('')} />; })()}
 
         <div className="s7-panel">
             <div className="s7-h">{'My saved programs'}<span>{'On this device only'}</span></div>
@@ -270,7 +293,7 @@ export function App() {
             </div>
             {saveMsg && <div className="s7-ok">{saveMsg}</div>}
             {Object.keys(progs).sort((x, y) => progs[y].ts - progs[x].ts).map(n => <div className="s7-tc" key={n}>
-                <div style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 700 }}>{n}<div className="s7-hint" style={{ marginTop: 2 }}>{new Date(progs[n].ts).toLocaleString('ar-EG')}</div></div>
+                <div style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 700 }}>{n}<div className="s7-hint" style={{ marginTop: 2 }}>{new Date(progs[n].ts).toLocaleString('en-GB')}</div></div>
                 <button type="button" className="s7-chip" onClick={() => doLoad(n)}>{'Open'}</button>
                 <button type="button" className="s7-chip" style={delAsk === n ? { background: '#b3261e', borderColor: '#b3261e' } : undefined} onClick={() => doDel(n)}>{delAsk === n ? 'Confirm delete' : 'Delete'}</button>
             </div>)}
