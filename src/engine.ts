@@ -768,3 +768,41 @@ export class Machine {
 }
 
 export function fmtTimer(t: Timer | undefined) { return t ? (t.rem / 1000).toFixed(2) : '0.00'; }
+
+
+// ---------- compiled-only blocks: readable parts of SUBBLK.DBF/DBT ----------
+const DECL_SUB: Record<string, number> = { FC: 5, OB: 3, FB: 4, DB: 6 };
+const CMT_SUB: Record<string, number> = { FC: 19, OB: 17, FB: 18, DB: 20 };
+export type CompInfo = { decl: string; nets: string[]; codeBytes: number };
+export function parseCompiled(dbf: Uint8Array, dbt: Uint8Array): Record<number, Record<number, { memo: Record<string, Uint8Array>; len: number }>> {
+    const dv = new DataView(dbf.buffer, dbf.byteOffset, dbf.byteLength);
+    const hlen = dv.getUint16(8, true), rlen = dv.getUint16(10, true), nrec = dv.getUint32(4, true);
+    const flds: Record<string, { len: number; off: number }> = {}; let off = 1;
+    for (let p = 32; p + 32 <= hlen && dbf[p] !== 0x0d; p += 32) { let nm = ''; for (let i = 0; i < 11 && dbf[p + i]; i++) nm += String.fromCharCode(dbf[p + i]); const len = dbf[p + 16]; flds[nm] = { len, off }; off += len; }
+    const num = (r: number, f: { len: number; off: number }) => { let s = ''; for (let i = 0; i < f.len; i++) { const c = dbf[r + f.off + i]; if (c) s += String.fromCharCode(c); } return +s.trim() || 0; };
+    const dbv = new DataView(dbt.buffer, dbt.byteOffset, dbt.byteLength);
+    const memo = (r: number, name: string): Uint8Array => { const f = flds[name]; if (!f) return new Uint8Array(0); const b = num(r, f) * 512; if (!b || b + 8 > dbt.length) return new Uint8Array(0); const L = dbv.getUint32(b + 4, true); return dbt.subarray(b + 8, Math.min(dbt.length, b + 8 + L)); };
+    const out: Record<number, Record<number, { memo: Record<string, Uint8Array>; len: number }>> = {};
+    if (!flds.OBJECTID || !flds.SUBBLKTYP) return out;
+    for (let i = 0; i < nrec; i++) { const r = hlen + i * rlen; if (r + rlen > dbf.length) break; if (dbf[r] === 0x2a) continue; const id = num(r, flds.OBJECTID), t = num(r, flds.SUBBLKTYP); (out[id] = out[id] || {})[t] = { memo: { code: memo(r, 'MC5CODE'), ssb: memo(r, 'SSBPART'), add: memo(r, 'ADDINFO') }, len: flds.MC5LEN ? num(r, flds.MC5LEN) : 0 }; }
+    return out;
+}
+const asc = (b: Uint8Array) => { let s = ''; for (const c of b) s += c === 0 ? '\u0000' : String.fromCharCode(c); return s; };
+export function compInfo(kind: string, subs: Record<number, { memo: Record<string, Uint8Array>; len: number }> | undefined): CompInfo | undefined {
+    if (!subs) return undefined;
+    const dsub = subs[DECL_SUB[kind]]; let decl = '';
+    if (dsub) { const m = dsub.memo.code; if (m.length) { const t = asc(m); const z = t.indexOf('\u0000'); decl = (z >= 0 ? t.slice(0, z) : t).replace(/\r/g, '').replace(/\t/g, '').trim(); } }
+    const nets: string[] = [];
+    const c = subs[CMT_SUB[kind]]; if (c) {
+        const m = c.memo.code;
+        for (let p = 0; p + 8 <= m.length; p++) {
+            if (m[p] !== 0x06 || m[p + 2] !== 0 || m[p + 4] !== 0 || m[p + 5] !== 0x06) continue;
+            const L = m[p + 3]; if (m[p + 1] !== ((L - 1) & 0xff) || L < 8 || p + L > m.length) continue;
+            if (m[p + L - 1] !== 0 || m[p + L - 2] !== 0) continue;
+            const t = asc(m.subarray(p + 6, p + L - 2)); if (/[\u0000-\u0008\u000e-\u001f]/.test(t)) continue;
+            nets.push(t); p += L - 1;
+        }
+    }
+    const body = subs[({ FC: 12, OB: 8, FB: 14, DB: 10 } as any)[kind]];
+    return { decl, nets, codeBytes: body ? body.len : 0 };
+}

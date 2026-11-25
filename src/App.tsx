@@ -5,7 +5,7 @@ import { EXAMPLES } from './examples';
 import { BlockSheet, KIND_LABEL } from './BlockSheet';
 const GROUP_NAME: Record<string, string> = { OB: 'Organization blocks', FB: 'Function blocks', FC: 'Functions', DB: 'Data blocks', UDT: 'User data types', SFC: 'System functions', SFB: 'System function blocks', VAT: 'Variable tables' };
 const GROUPS = ['OB', 'FB', 'FC', 'DB', 'UDT', 'SFC', 'SFB', 'VAT'];
-type Row = { key: string; kind: string; num?: number; code?: number; iface?: number; name: string; title: string; blk?: any };
+type Row = { key: string; kind: string; num?: number; code?: number; iface?: number; comp?: any; name: string; title: string; blk?: any };
 const rowsOf = (proj: any): Row[] => {
     const rows: Row[] = []; const used = new Set<any>();
     if (proj.catalog) {
@@ -13,7 +13,7 @@ const rowsOf = (proj: any): Row[] => {
         for (const c of sorted) {
             const b = proj.blocks.find((x: any) => KIND_LABEL[x.kind] === c.kind && x.num === c.num);
             if (b) used.add(b);
-            rows.push({ key: c.kind + c.num, kind: c.kind, num: c.num, code: c.code, iface: c.iface, name: c.name || (b ? b.name : c.kind + c.num), title: (b ? titleOf(b.text) : '') || c.comment || (c.name ? c.kind + c.num : ''), blk: b });
+            rows.push({ key: c.kind + c.num, kind: c.kind, num: c.num, code: c.code, iface: c.iface, comp: c.comp, name: c.name || (b ? b.name : c.kind + c.num), title: (b ? titleOf(b.text) : '') || c.comment || (c.name ? c.kind + c.num : ''), blk: b });
         }
     }
     for (const b of proj.blocks) if (!used.has(b)) rows.push({ key: 'src:' + b.name, kind: KIND_LABEL[b.kind] || b.kind, num: b.num, name: b.name, title: titleOf(b.text), blk: b });
@@ -59,6 +59,7 @@ export function App() {
     const [text, setText] = useState(() => lsGet(LS_DRAFT) || WELCOME);
     const [pick, setPick] = useState(false);
     const [viewBlk, setViewBlk] = useState('');
+    const [compKey, setCompKey] = useState('');
     const [bfilter, setBfilter] = useState('');
     const [exId, setExId] = useState('');
     const [progs, setProgs] = useState(loadProgs);
@@ -223,7 +224,7 @@ export function App() {
 
     return <div className="s7">
         <div className="s7-top">
-            <div className="s7-title">{'S7-300 Simulator (STL)'}<small>{'Siemens STEP 7 Classic | Version 1.3.5'}</small></div>
+            <div className="s7-title">{'S7-300 Simulator (STL)'}<small>{'Siemens STEP 7 Classic | Version 1.4.0'}</small></div>
             <div className={'s7-mode ' + (running ? 'run' : 'stop')}>{running ? 'RUN' : 'STOP'}</div>
         </div>
 
@@ -294,12 +295,13 @@ export function App() {
                                 <div className="nm" style={{ direction: 'ltr', textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.num != null && <span className="s7-bn">{r.kind + r.num}</span>}{r.name !== r.kind + r.num && r.name}{x && <small>{x.text.split('\n').length} {'lines'}</small>}</div>
                                 {r.title && <div className="s7-cmt">{r.title}</div>}
                                 {(r.code || r.iface) && <div className="s7-dates">{r.code ? <span>{'Code'} {fmtD(r.code)}</span> : null}{r.iface ? <span>{'Interface'} {fmtD(r.iface)}</span> : null}</div>}
-                                {!x && <div className="s7-hint" style={{ marginTop: 2 }}>{'No source (compiled block only)'}</div>}
+                                {!x && <div className="s7-hint" style={{ marginTop: 2 }}>{'Compiled block: instructions not decoded yet'}</div>}
                                 {v && <div className="s7-hint" style={{ marginTop: 2, color: v.err ? '#ff8a80' : v.skip ? '#ffcc80' : '#81c995' }}>
                                     {v.err ? 'Cannot load: ' + v.err + ' error(s)' : v.skip ? 'Loads (' + v.ins + ' instructions) with ' + v.skip + ' skipped CALL(s)' : 'Loads (' + v.ins + ' instructions)'}{v.virt ? ' | ' + v.virt + ' virtual DB field(s)' : ''}
                                 </div>}
                             </div>
                             {x && <button type="button" className="s7-chip" onClick={() => setViewBlk(x.name)}>{'View'}</button>}
+                            {!x && r.comp && <button type="button" className="s7-chip" onClick={() => setCompKey(r.key)}>{'Info'}</button>}
                             {v && <button type="button" className="s7-chip" onClick={() => pickBlock(x.name)}>{'Load'}</button>}
                         </div>;
                     })}
@@ -311,6 +313,28 @@ export function App() {
             <div className="s7-row"><button type="button" className="s7-chip" onClick={() => { setProj(null); setBlk(''); idbDel('project'); setFileMsg('Loaded project cleared'); }}>{'Clear project'}</button></div>
         </div>}
 
+        {proj && compKey && (() => { const r = rowsOf(proj).find(z => z.key === compKey); if (!r) return null; const c = r.comp || { decl: '', nets: [], codeBytes: 0 };
+            return <div className="s7-modal" onClick={() => setCompKey('')}>
+                <div className="s7-sheet bv" role="dialog" aria-label={'Compiled block ' + r.kind + r.num} onClick={e => e.stopPropagation()}>
+                    <div className="bv-head">
+                        <div style={{ minWidth: 0 }}>
+                            <div className="bv-kind">{r.kind + (r.num != null ? ' ' + r.num : '')}</div>
+                            <div className="bv-name">{r.name !== r.kind + r.num ? r.name : r.kind + r.num}</div>
+                            {r.title && <div className="bv-title">{r.title}</div>}
+                        </div>
+                        <button type="button" className="s7-x" aria-label="Close" onClick={() => setCompKey('')}>✕</button>
+                    </div>
+                    <div className="bv-meta">
+                        {r.code ? <span><u>Code</u> {fmtD(r.code)}</span> : null}{r.iface ? <span><u>Interface</u> {fmtD(r.iface)}</span> : null}{c.codeBytes ? <span><u>Code size</u> {c.codeBytes} bytes</span> : null}
+                    </div>
+                    <div className="s7-hint" style={{ margin: '8px 0' }}>{'Compiled block. The project files hold its instructions in compiled form and they are not decoded yet, so only the parts below are shown. Everything here is read directly from the project.'}</div>
+                    {c.decl && <div><div className="s7-h">{'Declarations'}</div><pre className="bv-pre">{c.decl}</pre></div>}
+                    {c.nets && c.nets.length > 0 && <div><div className="s7-h">{'Network titles'}<span>{c.nets.length}</span></div>
+                        {c.nets.map((t: string, i: number) => <div className="bv-nh" key={i}><b>{'Network'} {i + 1}</b>{t ? <span>{t}</span> : <span style={{ opacity: .5 }}>{'(no title)'}</span>}</div>)}
+                    </div>}
+                    {!c.decl && !(c.nets && c.nets.length) && <div className="s7-hint">{'No readable comments or declarations were found for this block.'}</div>}
+                </div>
+            </div>; })()}
         {proj && viewBlk && (() => { const vb = proj.blocks.find(x => x.name === viewBlk); if (!vb) return null; const vv: any = verdicts.find((y: any) => y.name === viewBlk);
             return <BlockSheet b={vb} layout={vb.db ? proj.dbs[vb.db] : undefined} status={vv ? (vv.err ? 'Cannot load: ' + vv.err + ' error(s)' : 'Loads (' + vv.ins + ' instructions)' + (vv.skip ? ', ' + vv.skip + ' skipped CALL(s)' : '')) : undefined}
                 onLoad={vv ? () => { pickBlock(viewBlk); setViewBlk(''); } : undefined} onClose={() => setViewBlk('')} />; })()}

@@ -1,10 +1,10 @@
 /* eslint-disable */
-import { Block, DbLayout, splitBlocks, dbLayouts, parseSymList, parseSymText, detectMnem, parseSymInfo, parseBlockCatalog, parseBlockDates } from './engine';
+import { Block, DbLayout, splitBlocks, dbLayouts, parseSymList, parseSymText, detectMnem, parseSymInfo, parseBlockCatalog, parseBlockDates, parseCompiled, compInfo } from './engine';
 
 export type Proj = {
     blocks: Block[]; symbols: Record<string, string>; dbs: Record<number, DbLayout>;
     mnem: 'en' | 'de'; files: string[]; warn: string[]; symCount: number;
-    catalog?: { kind: string; num: number; name: string; comment: string; code?: number; iface?: number }[];
+    catalog?: { kind: string; num: number; name: string; comment: string; code?: number; iface?: number; comp?: any }[];
 };
 
 export function decodeText(buf: Uint8Array): string {
@@ -42,7 +42,7 @@ export async function unzip(buf: Uint8Array, want: (name: string) => boolean): P
 const isSrc = (n: string) => /\.(awl|stl|src|txt)$/i.test(n);
 const SUBT: Record<string, number> = { UDT: 0, OB: 8, DB: 10, FC: 12, SFC: 13, FB: 14, SFB: 15, VAT: 27 };
 const isCat = (n: string) => /ombstx[\\/]offline[\\/][^\\/]+[\\/]baustein\.dbf$/i.test(n);
-const isSub = (n: string) => /ombstx[\\/]offline[\\/][^\\/]+[\\/]subblk\.dbf$/i.test(n);
+const isSub = (n: string) => /ombstx[\\/]offline[\\/][^\\/]+[\\/]subblk\.(dbf|dbt)$/i.test(n);
 const isSymFile = (n: string) => /symlist\.dbf$/i.test(n) || /\.(sdf|asc|sym|csv)$/i.test(n);
 
 export type Loaded = { kind: 'program'; text: string; name: string } | { kind: 'project'; proj: Proj };
@@ -54,10 +54,10 @@ export async function loadFiles(files: { name: string; data: Uint8Array }[]): Pr
         else all.push(f);
     }
     const blocks: Block[] = []; let symbols: Record<string, string> = {}; const used: string[] = []; const warn: string[] = []; const srcs: string[] = [];
-    let single = ''; let nBin = 0, nSrc = 0; const cats: { kind: string; num: number; id: number; dir: string }[] = []; const dates: Record<string, any> = {}; let info: Record<string, { name: string; comment: string }> = {};
+    let single = ''; let nBin = 0, nSrc = 0; const cats: { kind: string; num: number; id: number; dir: string }[] = []; const dates: Record<string, any> = {}; const comps: Record<string, any> = {}; const subf: Record<string, Uint8Array> = {}; let info: Record<string, { name: string; comment: string }> = {};
     for (const f of all) {
         if (isCat(f.name)) { try { const dir = f.name.replace(/[^\\/]+$/, '').toLowerCase(); cats.push(...parseBlockCatalog(f.data).map(c => ({ ...c, dir }))); } catch { } continue; }
-        if (isSub(f.name)) { try { dates[f.name.replace(/[^\\/]+$/, '').toLowerCase()] = parseBlockDates(f.data); } catch { } continue; }
+        if (isSub(f.name)) { subf[f.name.toLowerCase()] = f.data; continue; }
         if (isSymFile(f.name)) {
             if (!/\.dbf$/i.test(f.name) && all.some(x => /symlist\.dbf$/i.test(x.name))) continue; // a real symbol table is present
             try {
@@ -84,7 +84,8 @@ export async function loadFiles(files: { name: string; data: Uint8Array }[]): Pr
     const { dbs, warn: w2 } = dbLayouts(blocks);
     const KL: Record<string, string> = { FUNCTION: 'FC', FUNCTION_BLOCK: 'FB', ORGANIZATION_BLOCK: 'OB', DATA_BLOCK: 'DB', TYPE: 'UDT' };
     for (const b of blocks) { if (b.db) { b.num = b.db; continue; } const m = /^(FC|FB|OB|UDT)\s*(\d+)$/i.exec(b.name) || /^(FC|FB|OB|UDT)\s*(\d+)$/i.exec(symbols[b.name.toUpperCase()] || ''); if (m) b.num = +m[2]; else { const a = Object.keys(info).find(k => info[k].name.toUpperCase() === b.name.toUpperCase() && k.startsWith(KL[b.kind] || '??')); if (a) b.num = +a.replace(/\D/g, ''); } }
-    const seenC = new Set<string>(); const catalog = cats.filter(c => { const k = c.kind + c.num; if (seenC.has(k)) return false; seenC.add(k); return true; }).map(c => ({ kind: c.kind, num: c.num, name: (info[c.kind + c.num] || { name: '' }).name, comment: (info[c.kind + c.num] || { comment: '' }).comment, ...(() => { const d = dates[c.dir] && dates[c.dir][c.id] && dates[c.dir][c.id][SUBT[c.kind]]; return d ? { code: d.code || undefined, iface: d.iface || undefined } : {}; })() }));
+    for (const k of Object.keys(subf)) { if (!/dbf$/.test(k)) continue; const dir = k.replace(/[^\\/]+$/, ''); try { dates[dir] = parseBlockDates(subf[k]); const dbt = subf[k.replace(/dbf$/, 'dbt')]; if (dbt) comps[dir] = parseCompiled(subf[k], dbt); } catch { } }
+    const seenC = new Set<string>(); const catalog = cats.filter(c => { const k = c.kind + c.num; if (seenC.has(k)) return false; seenC.add(k); return true; }).map(c => ({ kind: c.kind, num: c.num, name: (info[c.kind + c.num] || { name: '' }).name, comment: (info[c.kind + c.num] || { comment: '' }).comment, ...(() => { const d = dates[c.dir] && dates[c.dir][c.id] && dates[c.dir][c.id][SUBT[c.kind]]; return d ? { code: d.code || undefined, iface: d.iface || undefined } : {}; })(), comp: (() => { try { return compInfo(c.kind, comps[c.dir] && comps[c.dir][c.id]); } catch { return undefined; } })() }));
     // blocks that appear twice (same name): keep the last one
     const seen = new Map<string, number>(); blocks.forEach((b, i) => seen.set(b.kind + ':' + b.name, i));
     const uniq = blocks.filter((b, i) => seen.get(b.kind + ':' + b.name) === i);
