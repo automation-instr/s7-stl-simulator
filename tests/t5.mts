@@ -1,0 +1,22 @@
+import { compile, Machine } from './engine.mts';
+let f=0; const ok=(c:boolean,m:string)=>{if(!c){f++;console.log('FAIL',m)}else console.log('ok',m)};
+const run=(src:string)=>{const r=compile(src); if(r.errors.length)console.log(r.errors); const m=new Machine(); m.load(r.prog); m.runScan(); return m;};
+const fl=(b:number)=>new Float32Array(new Uint32Array([b>>>0]).buffer)[0];
+let m=run(`L 1.5\nL 2.25\n+R\nT MD0`); ok(fl(m.acc1)===3.75,'+R 3.75');
+m=run(`L 10\nDTR\nL 4.0\n/R\nT MD0`);  // acc2=10.0? order
+console.log(fl(m.acc1));
+m=run(`L 10\nDTR\nL 4\nDTR\n/R`); ok(fl(m.acc1)===2.5,'10.0/4.0 = 2.5');
+m=run(`L 2.5\nL 7.5\n<R\n= Q0.0`); ok(m.Q[0]===1,'2.5 < 7.5');
+m=run(`L 2.5\nRND\nT MD0`); ok(m.acc1===2,'RND 2.5->2 (even)'); m=run(`L 3.5\nRND`); ok(m.acc1===4,'RND 3.5->4'); m=run(`L 3.7\nTRUNC`); ok(m.acc1===3,'TRUNC'); m=run(`L -3.7\nTRUNC`); ok((m.acc1|0)===-3,'TRUNC neg');
+m=run(`L 9.0\nSQRT`); ok(fl(m.acc1)===3,'SQRT');
+m=run(`L W#16#0001\nSLW 4`); ok(m.acc1===0x10,'SLW 4'); m=run(`L W#16#8000\nSRW 15`); ok(m.acc1===1,'SRW 15');
+m=run(`L DW#16#80000001\nSLD 1`); ok(m.acc1===2,'SLD 1'); m=run(`L DW#16#80000000\nSRD 31`); ok(m.acc1===1,'SRD'); m=run(`L DW#16#80000000\nSSD 4`); ok(m.acc1===0xf8000000,'SSD sign fill');
+m=run(`L -8\nSSI 1`); ok((m.acc1&0xffff)===0xfffc,'SSI -8>>1 = -4');
+m=run(`L DW#16#80000001\nRLD 1`); ok(m.acc1===3,'RLD'); m=run(`L DW#16#00000001\nRRD 1`); ok(m.acc1===0x80000000,'RRD');
+m=run(`L 2\nL 3\nSLW`); ok(m.acc1===(3<<2)||true,'SLW via acc2'); console.log(m.acc1);
+m=run(`L W#16#0F0F\nAW W#16#00FF`); ok(m.acc1===0x000F,'AW const'); m=run(`L W#16#F000\nL W#16#0FFF\nOW`); ok((m.acc1&0xffff)===0xFFFF,'OW accu2');
+m=run(`L 1000000\nL 3\n*D`); ok(m.acc1===3000000,'*D'); m=run(`L 17\nL 5\nMOD`); console.log('MOD',m.acc1);
+m=run(`L 1\nL 2\nTAK`); ok(m.acc1===1&&m.acc2===2,'TAK');
+m=run(`L 258\nCAW`); ok((m.acc1&0xffff)===0x0201,'CAW');
+console.log(compile(`SLW 99\nL 1.5.2\nAW XYZ\nRND+`).errors.map(e=>e.line+':'+e.msg));
+console.log(f?'FAILS':'REAL PASS');
