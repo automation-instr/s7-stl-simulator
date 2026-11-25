@@ -3,15 +3,23 @@
 
 export type Err = { line: number; msg: string };
 export type Ins = { op: string; a?: any; line: number; text: string; label?: string };
-export type Program = { ins: Ins[]; labels: Record<string, number>; lines: string[] };
+export type Program = { ins: Ins[]; labels: Record<string, number>; lines: string[]; dbSizes?: Record<number, number> };
+export type Field = { off: number; bit?: number; type: string; len?: number };
+export type DbLayout = { size: number; fields: Record<string, Field> };
+export type Ctx = { symbols?: Record<string, string>; dbs?: Record<number, DbLayout>; mnem?: 'auto' | 'en' | 'de'; virtualDb?: boolean };
+export type VField = { db: number; name: string; type: string; first: number };
+export type Skipped = { line: number; callee: string; net: number; title: string };
+export type Block = { kind: string; name: string; text: string; line0: number; db?: number };
 
 const BITOPS = ['A', 'AN', 'O', 'ON', 'X', 'XN'];
 const ALIAS: Record<string, string> = {
     U: 'A', UN: 'AN', JU: 'SPA', JC: 'SPB', JCN: 'SPBN', CU: 'ZV', CD: 'ZR',
-    S_ODT: 'SE', S_PULSE: 'SI', S_ODTS: 'SS', S_PEXT: 'SV', S_OFFDT: 'SA', BEC: 'BEB', CLR: 'CLR',
+    S_ODT: 'SE', S_PULSE: 'SI', S_ODTS: 'SS', S_PEXT: 'SV', S_OFFDT: 'SA', BEC: 'BEB', CLR: 'CLR', AUF: 'OPN',
 };
+const EN_TIMER: Record<string, string> = { SE: 'SV', SD: 'SE', SP: 'SI', SF: 'SA' };
+export const TIMER_NAME: Record<string, string> = { SE: 'S_ODT', SI: 'S_PULSE', SS: 'S_ODTS', SV: 'S_PEXT', SA: 'S_OFFDT' };
 const TIMER_OPS = ['SE', 'SI', 'SS', 'SV', 'SA'];
-const UNSUPPORTED = ['CALL', 'CC', 'UC', 'LC', 'LOOP', 'SAVE', 'POP', 'PUSH', 'RLDA', 'RRDA', 'MCR(', 'DI', 'DO', 'AUF', 'TAW', 'TAD', 'CDB', 'OPN_'];
+const UNSUPPORTED = ['CALL', 'CC', 'UC', 'LC', 'LOOP', 'POP', 'PUSH', 'RLDA', 'RRDA', 'MCR(', 'DI', 'DO', 'TAW', 'TAD', 'CDB', 'OPN_'];
 const SIMPLE = ['TAK', 'ITD', 'DTR', 'RND', 'RND+', 'RND-', 'TRUNC', 'NEGI', 'NEGD', 'NEGR', 'ABS', 'INVI', 'INVD', 'CAW', 'CAD', 'SQRT', 'SQR', 'EXP', 'LN', 'SIN', 'COS', 'TAN', 'ASIN', 'ACOS', 'ATAN', 'MOD'];
 const SHIFT = ['SLW', 'SRW', 'SLD', 'SRD', 'SSI', 'SSD', 'RLD', 'RRD'];
 const LOGW = ['AW', 'OW', 'XOW', 'AD', 'OD', 'XOD'];
@@ -41,40 +49,43 @@ const bitsOf = (x: number) => new Uint32Array(new Float32Array([x]).buffer)[0] >
 type Addr = { area: string; byte: number; bit?: number; size?: string; n?: number };
 
 function parseBitAddr(s: string): Addr | string {
-    const m = /^([IEQAM])(\d+)\.(\d+)$/i.exec(s);
+    const m = /^([IEQAML])(\d+)\.(\d+)$/i.exec(s);
     if (!m) return 'bad';
     const bit = +m[3];
     if (bit > 7) return 'bit';
-    const area = { I: 'I', E: 'I', Q: 'Q', A: 'Q', M: 'M' }[m[1].toUpperCase()] as string;
+    const area = { I: 'I', E: 'I', Q: 'Q', A: 'Q', M: 'M', L: 'L' }[m[1].toUpperCase()] as string;
     const byte = +m[2];
-    if (byte > 255 || (area !== 'M' && byte > 127)) return 'range';
+    if (byte >= AREA_SIZE[area]) return 'range';
     return { area, byte, bit };
 }
 
+export const AREA_SIZE: Record<string, number> = { I: 1024, Q: 1024, M: 4096, L: 512, PI: 1024, PQ: 1024 };
 const DBSIZE = 512;
+let DBSZ: Record<number, number> = {};
+const dbLimit = (db: number) => (db ? (DBSZ[db] || DBSIZE) : 65536);
 function parseDbAddr(s: string, mode: 'bit' | 'num'): any {
     const m = /^(?:DB(\d+)\.)?(DB|DI)([XBWD])(\d+)(?:\.(\d+))?$/i.exec(s);
     if (!m) return null;
     const db = m[1] ? +m[1] : 0, reg = m[2].toUpperCase(), k = m[3].toUpperCase(), byte = +m[4];
     if (m[1] && reg === 'DI') return 'baddi';
-    if (db > 255 || (m[1] && db === 0)) return 'dbrange';
+    if (db > 65535 || (m[1] && db === 0)) return 'dbrange';
     if (k === 'X') {
         if (m[5] === undefined) return 'dbxbit';
         if (+m[5] > 7) return 'bit';
-        if (byte >= DBSIZE) return 'dbbyte';
+        if (byte >= dbLimit(db)) return 'dbbyte';
         return mode === 'bit' ? { area: 'DB', db, reg, byte, bit: +m[5] } : 'needsize';
     }
     if (m[5] !== undefined) return 'dbbitnotallowed';
     const w = k === 'B' ? 1 : k === 'W' ? 2 : 4;
-    if (byte + w > DBSIZE) return 'dbbyte';
+    if (byte + w > dbLimit(db)) return 'dbbyte';
     return mode === 'num' ? { area: 'DB', db, reg, byte, size: k } : 'needbit';
 }
 const DBERR: Record<string, string> = {
     baddi: 'DI مينفعش يتكتب معاه رقم DB. استخدم DIX0.0 بعد OPN DI',
-    dbrange: 'رقم الـ DB لازم يكون من 1 لـ 255',
+    dbrange: 'رقم الـ DB لازم يكون من 1 لـ 65535',
     dbxbit: 'DBX محتاج رقم بت (مثال: DBX0.0)',
     bit: 'رقم البت لازم يكون من 0 لـ 7',
-    dbbyte: 'العنوان برا حجم الـ DB (' + DBSIZE + ' بايت)',
+    dbbyte: 'العنوان برا حجم الـ DB (حسب تعريفه، أو 512 بايت لو مفيش تعريف)',
     needsize: 'DBX للبت بس. للقراءة والكتابة استخدم DBB/DBW/DBD (مثال: L DBW0)',
     needbit: 'العنوان ده مش بت. للبت استخدم DBX، وللقراءة استخدم L DBW0',
     dbbitnotallowed: 'DBB/DBW/DBD من غير رقم بت',
@@ -114,23 +125,181 @@ function parseConst(s: string): { v: number; kind: string } | string {
     return 'bad';
 }
 
+// ---------- project helpers: layouts, blocks, symbols ----------
+const stripC = (l: string) => l.replace(/\/\/.*$/, '').replace(/\(\*.*?\*\)/g, '');
+const TYPE_SZ: Record<string, number> = { BYTE: 1, CHAR: 1, INT: 2, WORD: 2, DATE: 2, S5TIME: 2, DINT: 4, DWORD: 4, REAL: 4, TIME: 4, TIME_OF_DAY: 4, TOD: 4, DATE_AND_TIME: 8, DT: 8 };
+// STEP 7 layout: BOOLs pack into bits, BYTE/CHAR sit on the next byte, everything bigger on an even byte.
+export function layoutDecls(lines: string[]): DbLayout & { errors: string[] } {
+    const fields: Record<string, Field> = {}; const errors: string[] = [];
+    let byte = 0, bit = 0; // bit>0 means inside a byte of bools
+    const pre: string[] = [];
+    const align = () => { if (bit > 0) { bit = 0; byte++; } if (byte & 1) byte++; };
+    for (const raw of lines) {
+        const t = stripC(raw).trim();
+        if (/^END_STRUCT\b/i.test(t)) { align(); pre.pop(); continue; }
+        const m = /^([A-Za-z_][\w]*)\s*:\s*(.+?)\s*(?::=.*)?;?\s*$/.exec(t);
+        if (!m) continue;
+        if (/^STRUCT\b/i.test(m[2])) { align(); pre.push(m[1].toUpperCase()); continue; }
+        const name = (pre.length ? pre.join('.') + '.' : '') + m[1].toUpperCase(); let ty = m[2].replace(/;$/, '').trim().toUpperCase(); let n = 1;
+        const am = /^ARRAY\s*\[\s*(-?\d+)\s*\.\.\s*(-?\d+)\s*\]\s*OF\s+(\w+)/.exec(ty);
+        if (am) { n = +am[2] - +am[1] + 1; ty = am[3]; }
+        const sm = /^STRING\s*\[\s*(\d+)\s*\]/.exec(ty);
+        let sz: number, isBool = false;
+        if (ty === 'BOOL') { isBool = true; sz = 0; }
+        else if (sm) { sz = +sm[1] + 2; ty = 'STRING'; }
+        else if (TYPE_SZ[ty]) sz = TYPE_SZ[ty];
+        else { errors.push('نوع مش مدعوم: ' + ty + ' (' + name + ')'); continue; }
+        if (isBool && n === 1) {
+            fields[name] = { off: byte, bit, type: 'BOOL' };
+            if (++bit === 8) { bit = 0; byte++; }
+            continue;
+        }
+        if (isBool) { // array of bool: pack
+            fields[name] = { off: byte, bit, type: 'BOOL', len: n };
+            const tot = bit + n; byte += tot >> 3; bit = tot & 7; continue;
+        }
+        if (bit > 0) { bit = 0; byte++; }
+        if (sz > 1 && (byte & 1)) byte++;
+        fields[name] = { off: byte, type: ty, len: am ? n : undefined };
+        byte += sz * n;
+    }
+    if (bit > 0) { byte++; }
+    if (byte & 1) byte++;
+    return { size: byte, fields, errors };
+}
+export function splitBlocks(src: string): Block[] {
+    const lines = src.replace(/\r/g, '').split('\n'); const out: Block[] = []; let cur: { kind: string; name: string; start: number; db?: number } | null = null;
+    lines.forEach((l, i) => {
+        const t = l.trim();
+        const h = /^(FUNCTION_BLOCK|FUNCTION|ORGANIZATION_BLOCK|DATA_BLOCK|TYPE)\s+("[^"]+"|[\w]+)/i.exec(t);
+        if (h && !cur) {
+            const nm = h[2].replace(/"/g, ''); const dm = /^DB(\d+)$/i.exec(nm);
+            cur = { kind: h[1].toUpperCase(), name: nm, start: i, db: dm ? +dm[1] : undefined };
+        } else if (cur && /^END_(FUNCTION_BLOCK|FUNCTION|ORGANIZATION_BLOCK|DATA_BLOCK|TYPE)\b/i.test(t)) {
+            out.push({ kind: cur.kind, name: cur.name, db: cur.db, line0: cur.start, text: lines.slice(cur.start, i + 1).join('\n') }); cur = null;
+        }
+    });
+    return out;
+}
+// DB layouts from DATA_BLOCK sources (STRUCT ... END_STRUCT)
+export function dbLayouts(blocks: Block[]): { dbs: Record<number, DbLayout>; warn: string[] } {
+    const dbs: Record<number, DbLayout> = {}; const warn: string[] = [];
+    for (const b of blocks) {
+        if (b.kind !== 'DATA_BLOCK' || !b.db) continue;
+        const ls = b.text.split('\n'); const a = ls.findIndex(l => /^\s*STRUCT\b/i.test(l)); let z = -1; for (let i = ls.length - 1; i > a && a >= 0; i--) if (/^\s*END_STRUCT\b/i.test(ls[i])) { z = i; break; }
+        if (a < 0 || z < 0) { warn.push('DB' + b.db + ': مفيش STRUCT'); continue; }
+        const r = layoutDecls(ls.slice(a + 1, z));
+        dbs[b.db] = { size: r.size, fields: r.fields }; r.errors.forEach(e => warn.push('DB' + b.db + ': ' + e));
+    }
+    return { dbs, warn };
+}
+// Siemens symbol table (SYMLIST.DBF from a STEP 7 project): returns NAME(UPPER) -> absolute address
+export function parseSymList(buf: Uint8Array): Record<string, string> {
+    const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+    const hlen = dv.getUint16(8, true), rlen = dv.getUint16(10, true), nrec = dv.getUint32(4, true);
+    const flds: { name: string; len: number; off: number }[] = []; let off = 1;
+    for (let p = 32; p + 32 <= hlen && buf[p] !== 0x0d; p += 32) {
+        let nm = ''; for (let i = 0; i < 11 && buf[p + i]; i++) nm += String.fromCharCode(buf[p + i]);
+        const len = buf[p + 16]; flds.push({ name: nm, len, off }); off += len;
+    }
+    const fS = flds.find(f => f.name === '_SKZ'), fO = flds.find(f => f.name === '_OPIEC');
+    if (!fS || !fO) throw new Error('الملف ده مش جدول رموز STEP 7 (مفيش _SKZ/_OPIEC)');
+    const rd = (r: number, f: { len: number; off: number }) => { let s = ''; for (let i = 0; i < f.len; i++) { const c = buf[r + f.off + i]; if (c) s += String.fromCharCode(c); } return s.trim(); };
+    const out: Record<string, string> = {};
+    for (let i = 0; i < nrec; i++) {
+        const r = hlen + i * rlen; if (r + rlen > buf.length) break; if (buf[r] === 0x2a) continue;
+        const n = rd(r, fS), a = rd(r, fO); if (n && a) out[n.toUpperCase()] = a.replace(/\s+/g, ' ');
+    }
+    return out;
+}
+// plain text symbol table: "NAME<TAB or comma>ADDRESS" per line, or "NAME  ADDRESS" (SDF/ASC export)
+export function parseSymText(txt: string): Record<string, string> {
+    const out: Record<string, string> = {};
+    for (const l of txt.replace(/\r/g, '').split('\n')) {
+        const m = /^\s*"?([^\t,";]+?)"?\s*[\t,;]\s*"?([A-Za-z]{1,3}\s*\d+(?:\.\d+)?)"?/.exec(l);
+        if (m) out[m[1].trim().toUpperCase()] = m[2].replace(/\s+/g, ' ');
+    }
+    return out;
+}
+export function detectMnem(src: string): 'en' | 'de' {
+    let en = 0, de = 0;
+    for (const raw of src.replace(/\r/g, '').split('\n')) {
+        const t = stripC(raw).trim().replace(/^[A-Za-z_]\w*\s*:(?!=)\s*/, '');
+        const m = /^([A-Za-z_]+)\b/.exec(t); if (!m) continue; const o = m[1].toUpperCase();
+        if (/^(SD|SF|SP)$/.test(o) && /^\w+\s+(T\s*\d|"|#)/.test(t)) en++;
+        else if (/^(JU|JC|JCN|CU|CD)$/.test(o)) en++;
+        else if (/^(SI|SV|SA|SPA|SPB|SPBN|ZV|ZR|U|UN|AUF)$/.test(o)) de++;
+    }
+    return en > de ? 'en' : 'de';
+}
+
 // ---------- parser ----------
-export function compile(src: string): { prog: Program; errors: Err[] } {
+export function compile(src: string, ctx: Ctx = {}): { prog: Program; errors: Err[]; skipped: Skipped[]; mnem: 'en' | 'de'; temps: number; virtual: VField[] } {
     const lines = src.replace(/\r/g, '').split('\n');
     const ins: Ins[] = [];
     const labels: Record<string, number> = {};
     const errors: Err[] = [];
+    const skipped: Skipped[] = [];
     const E = (line: number, msg: string) => errors.push({ line, msg });
     let depth = 0, depthLine = 0;
+    const mnem: 'en' | 'de' = ctx.mnem === 'en' || ctx.mnem === 'de' ? ctx.mnem : detectMnem(src);
+    const syms = ctx.symbols || {}; const dbs: Record<number, DbLayout> = { ...(ctx.dbs || {}) };
+    const virtual: VField[] = []; const vlay: Record<number, { byte: number; bit: number }> = {}; const vdbNums = new Set<number>();
+    const inferType = (ln: number): string => {
+        const first = (lines[ln - 1] || '').replace(/\/\/.*$/, '').trim().replace(/^\w+\s*:(?!=)\s*/, '').split(/\s+/)[0].toUpperCase();
+        if (/^(A|AN|O|ON|X|XN|=|S|R|FP|FN)$/.test(first)) return 'BOOL';
+        const look = (dir: number) => { let n = 0; for (let j = ln - 1 + dir; j >= 0 && j < lines.length && n < 4; j += dir) { const t = lines[j].replace(/\/\/.*$/, '').trim().replace(/^\w+\s*:(?!=)\s*/, ''); if (!t) continue; n++; const m = /^(?:[+\-*\/]|==|<>|>=|<=|>|<)([IDR])\b/.exec(t); if (m) return m[1] === 'I' ? 'INT' : 'REAL'; if (/^T\s/i.test(t) || /^(SPA|SPB|SPBN|JU|JC|JCN|JNB|BE|BEB)\b/i.test(t)) return ''; } return ''; };
+        return (first === 'T' ? look(-1) : look(1)) || (/REAL/i.test(lines[ln - 1]) ? 'REAL' : 'INT');
+    };
+    const virtualField = (db: number, name: string, ln: number): Field => {
+        const lay = dbs[db] || (dbs[db] = { size: 0, fields: {} }); vdbNums.add(db);
+        const v = vlay[db] || (vlay[db] = { byte: 0, bit: 0 }); const type = inferType(ln); const key = name.toUpperCase();
+        let f: Field;
+        if (type === 'BOOL') { f = { off: v.byte, bit: v.bit, type }; if (++v.bit === 8) { v.bit = 0; v.byte++; } }
+        else { if (v.bit) { v.bit = 0; v.byte++; } if (v.byte & 1) v.byte++; f = { off: v.byte, type }; v.byte += type === 'INT' ? 2 : 4; }
+        lay.fields[key] = f; lay.size = Math.max(lay.size, v.byte + (v.bit ? 1 : 0)); DBSZ[db] = lay.size; dbSizes[db] = lay.size;
+        virtual.push({ db, name, type, first: ln }); return f;
+    };
+    DBSZ = {}; const dbSizes: Record<number, number> = {};
+    for (const k in dbs) { DBSZ[+k] = dbs[+k].size; dbSizes[+k] = dbs[+k].size; }
 
-    let inVar = false;
+    // VAR_TEMP declarations -> local data layout (#name)
+    let tempLay: DbLayout = { size: 0, fields: {} };
+    { const a = lines.findIndex(l => /^\s*VAR_TEMP\b/i.test(l)); if (a >= 0) { const z = lines.findIndex((l, i) => i > a && /^\s*END_VAR\b/i.test(l)); tempLay = layoutDecls(lines.slice(a + 1, z < 0 ? lines.length : z)); } }
+    const FLET: Record<string, string> = { BYTE: 'B', CHAR: 'B', INT: 'W', WORD: 'W', DATE: 'W', S5TIME: 'W' };
+    const dbOperand = (n: number, f: Field) => 'DB' + n + '.DB' + (f.type === 'BOOL' ? 'X' : FLET[f.type] || 'D') + f.off + (f.type === 'BOOL' ? '.' + f.bit : '');
+    const resolve = (s: string, ln: number): string => s
+        .replace(/"([^"]+)"(?:\.([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*))?/g, (m0, name: string, field?: string) => {
+            const a = syms[name.toUpperCase()];
+            if (a === undefined) { E(ln, 'الرمز "' + name + '" مش موجود في جدول الرموز. حمّل جدول الرموز (SYMLIST.DBF)'); return m0; }
+            const norm = a.replace(/\s+/g, '').toUpperCase();
+            if (!field) return norm;
+            const dm = /^DB(\d+)$/.exec(norm); if (!dm) { E(ln, 'الرمز "' + name + '" (' + a + ') مش DB'); return m0; }
+            const dn = +dm[1], lay = dbs[dn];
+            if ((!lay || vdbNums.has(dn)) && ctx.virtualDb === false) { E(ln, 'الرمز "' + name + '" (' + a + ') مالوش تعريف DB متحمل. حمّل ملف الـ DB (AWL)'); return m0; }
+            let f = lay ? lay.fields[field.toUpperCase()] : undefined;
+            if (!f && (!lay || vdbNums.has(dn))) f = virtualField(dn, field, ln);
+            if (!f) { E(ln, 'الحقل ' + field + ' مش موجود في ' + a.replace(/\s+/g, '')); return m0; }
+            return dbOperand(+dm[1], f);
+        })
+        .replace(/(^|[^\w#])#([A-Za-z_]\w*)/g, (m0, pre: string, name: string) => {
+            const f = tempLay.fields[name.toUpperCase()];
+            if (!f) { E(ln, 'المتغير المؤقت #' + name + ' مش معرّف في VAR_TEMP'); return m0; }
+            return pre + (f.type === 'BOOL' ? 'L' + f.off + '.' + f.bit : 'L' + (FLET[f.type] || 'D') + f.off);
+        });
+
+    let inVar = false, callDepth = -1, net = 0, title = '', callee = '', callLine = 0;
+    const parenDelta = (x: string) => { x = x.replace(/"[^"]*"/g, ''); return (x.match(/\(/g) || []).length - (x.match(/\)/g) || []).length; };
     lines.forEach((raw, i) => {
         const ln = i + 1;
         let t = raw.replace(/\/\/.*$/, '').replace(/\(\*.*?\*\)/g, '').replace(/;\s*$/, '').trim();
         if (!t) return;
+        if (callDepth >= 0) { callDepth += parenDelta(t); if (callDepth <= 0) callDepth = -1; return; }
         if (inVar) { if (/^END_VAR\b/i.test(t)) inVar = false; return; }
         if (/^VAR\w*\b/i.test(t)) { inVar = true; return; }
-        if (/^(NETWORK\b|TITLE\s*=|BEGIN\b|END_\w+|ORGANIZATION_BLOCK\b|FUNCTION_BLOCK\b|FUNCTION\b|VERSION\b|AUTHOR\b|FAMILY\b|KNOW_HOW_PROTECT\b|\{)/i.test(t)) return;
+        if (/^NETWORK\b/i.test(t)) { net++; title = ''; return; }
+        if (/^TITLE\s*=/i.test(t)) { title = t.replace(/^TITLE\s*=\s*/i, '').slice(0, 60); return; }
+        if (/^(BEGIN\b|END_\w+|ORGANIZATION_BLOCK\b|FUNCTION_BLOCK\b|FUNCTION\b|DATA_BLOCK\b|VERSION\b|AUTHOR\b|FAMILY\b|NAME\b|KNOW_HOW_PROTECT\b|\{)/i.test(t)) return;
         let label: string | undefined;
         const lm = /^([A-Za-z_][A-Za-z0-9_]*)\s*:(?!=)\s*(.*)$/.exec(t);
         if (lm) {
@@ -141,11 +310,23 @@ export function compile(src: string): { prog: Program; errors: Err[] } {
             t = lm[2].trim();
             if (!t) return;
         }
+        const cm = /^CALL\s+(?:"([^"]+)"|(\w+(?:\s+\d+)?))/i.exec(t);
+        if (cm) {
+            callee = cm[1] || cm[2]; callLine = ln;
+            const d = parenDelta(t); if (d > 0) callDepth = d;
+            skipped.push({ line: ln, callee, net, title });
+            ins.push({ op: 'CALLSKIP', line: ln, text: t.length > 70 ? t.slice(0, 70) + '…' : t, label });
+            return;
+        }
         const mm = /^(==[IDR]|<>[IDR]|>=[IDR]|<=[IDR]|>[IDR]|<[IDR]|[+\-*\/][IDR]|RND[+\-]|=|\+|\)|[A-Za-z_][A-Za-z0-9_]*)\s*(.*)$/.exec(t);
         if (!mm) { E(ln, 'مش فاهم السطر ده: "' + t + '"'); return; }
         let op = mm[1].toUpperCase();
-        let rest = mm[2].replace(/\s+/g, '');
+        const nErr = errors.length;
+        let rest = resolve(mm[2], ln).replace(/\s+/g, '');
+        if (errors.length > nErr) return;
         const text = t;
+        if (mnem === 'en' && EN_TIMER[op]) op = EN_TIMER[op];
+        else if (mnem === 'de' && (op === 'SD' || op === 'SF' || op === 'SP')) { E(ln, 'التعليمة ' + op + ' من الرموز الإنجليزي. غيّر مجموعة الرموز لـ English'); return; }
         if (ALIAS[op]) op = ALIAS[op];
         const push = (a?: any) => ins.push({ op, a, line: ln, text, label });
 
@@ -157,8 +338,8 @@ export function compile(src: string): { prog: Program; errors: Err[] } {
             if (depth === 0) { E(ln, 'قوس قفل ")" من غير قوس فتح'); return; }
             depth--; push(); return;
         }
-        if (['SET', 'CLR', 'NOT', 'BE', 'SPA_'].includes(op) || (op === 'NOP')) {
-            if (op === 'NOP') { push(); return; }
+        if (['SET', 'CLR', 'NOT', 'BE', 'SPA_', 'SAVE', 'BLD'].includes(op) || (op === 'NOP')) {
+            if (op === 'NOP' || op === 'BLD') { push(); return; }
             if (rest) { E(ln, 'التعليمة ' + op + ' من غير عنوان'); return; }
             push(); return;
         }
@@ -175,13 +356,13 @@ export function compile(src: string): { prog: Program; errors: Err[] } {
                 E(ln, 'التعليمة ' + op + ' مينفعش تتعامل مع ' + (kind === 'T' ? 'التايمر' : 'العداد') + ' كده. استخدم ' + (kind === 'T' ? 'SE / SI / SS / SV / SA أو R' : 'ZV / ZR / S / R')); return;
             }
             const da = parseDbAddr(rest, 'bit');
-            if (da) { if (typeof da === 'string') { E(ln, DBERR[da]); return; } if (op === 'FP' || op === 'FN') { E(ln, op + ' محتاجة Merker زي M1.0 كذاكرة للحافة'); return; } push(da); return; }
+            if (da) { if (typeof da === 'string') { E(ln, DBERR[da]); return; } push(da); return; }
             const a = parseBitAddr(rest);
             if (typeof a === 'string') {
                 E(ln, a === 'bit' ? 'رقم البت لازم يكون من 0 لـ 7 في "' + rest + '"' : a === 'range' ? 'العنوان "' + rest + '" برا النطاق' : 'العنوان "' + rest + '" غلط. الشكل الصحيح: I0.0 أو Q0.1 أو M2.3');
                 return;
             }
-            if (op === 'FP' || op === 'FN') { if (a.area !== 'M') { E(ln, op + ' محتاجة Merker زي M1.0 كذاكرة للحافة'); return; } }
+            if ((op === 'FP' || op === 'FN') && a.area === 'I') { E(ln, op + ' محتاجة Merker أو DB كذاكرة للحافة (مش دخل)'); return; }
             push(a); return;
         }
         if (TIMER_OPS.includes(op) || op === 'ZV' || op === 'ZR' || op === 'FR') {
@@ -196,13 +377,13 @@ export function compile(src: string): { prog: Program; errors: Err[] } {
             if (!rest) { E(ln, 'التعليمة ' + op + ' محتاجة عنوان' + (op === 'L' ? ' أو رقم (مثال: L 5 أو L MW10)' : ' (مثال: T MW10)')); return; }
             const dn = parseDbAddr(rest, 'num');
             if (dn) { if (typeof dn === 'string') { E(ln, DBERR[dn]); return; } push(dn); return; }
-            const m = /^([IEQAM])([BWD])(\d+)$/i.exec(rest);
+            const m = /^(PI|PE|PQ|PA|[IEQAML])([BWD])(\d+)$/i.exec(rest);
             if (m) {
-                const area = { I: 'I', E: 'I', Q: 'Q', A: 'Q', M: 'M' }[m[1].toUpperCase()] as string;
+                const area = { I: 'I', E: 'I', Q: 'Q', A: 'Q', M: 'M', L: 'L', PI: 'PI', PE: 'PI', PQ: 'PQ', PA: 'PQ' }[m[1].toUpperCase()] as string;
                 const size = m[2].toUpperCase(), byte = +m[3];
                 const w = size === 'B' ? 1 : size === 'W' ? 2 : 4;
-                if (byte + w > (area === 'M' ? 256 : 128)) { E(ln, 'العنوان "' + rest + '" برا النطاق'); return; }
-                if (op === 'T' && area === 'I') { E(ln, 'التعليمة T مينفعش تكتب على I (دخل)'); return; }
+                if (byte + w > AREA_SIZE[area]) { E(ln, 'العنوان "' + rest + '" برا النطاق'); return; }
+                if (op === 'T' && (area === 'I' || area === 'PI')) { E(ln, 'التعليمة T مينفعش تكتب على الدخل'); return; }
                 push({ area, byte, size }); return;
             }
             const tc = /^([TC])(\d+)$/i.exec(rest);
@@ -217,14 +398,14 @@ export function compile(src: string): { prog: Program; errors: Err[] } {
             }
             E(ln, 'العنوان "' + rest + '" غلط. مثال: T MW10 أو T QB0'); return;
         }
-        if (op === 'SPA' || op === 'SPB' || op === 'SPBN') {
+        if (op === 'SPA' || op === 'SPB' || op === 'SPBN' || op === 'JNB' || op === 'JBI' || op === 'JNBI') {
             if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(rest)) { E(ln, op + ' محتاجة اسم Label (مثال: ' + op + ' M001)'); return; }
             push(rest.toUpperCase()); return;
         }
         if (op === 'BEB') { push(); return; }
         if (op === 'OPN') {
             const om = /^(DB|DI)(\d+)$/i.exec(rest);
-            if (!om || +om[2] < 1 || +om[2] > 255) { E(ln, 'OPN محتاجة DB أو DI مع رقم من 1 لـ 255 (مثال: OPN DB1)'); return; }
+            if (!om || +om[2] < 1 || +om[2] > 65535) { E(ln, 'OPN محتاجة DB أو DI مع رقم من 1 لـ 65535 (مثال: OPN DB1)'); return; }
             push({ reg: om[1].toUpperCase(), n: +om[2] }); return;
         }
         if (SIMPLE.includes(op)) { if (rest) { E(ln, 'التعليمة ' + op + ' من غير عنوان'); return; } push(); return; }
@@ -256,9 +437,9 @@ export function compile(src: string): { prog: Program; errors: Err[] } {
     });
     if (depth > 0) E(depthLine, 'قوس فتح "(" من غير قوس قفل ")"');
     ins.forEach(x => {
-        if (['SPA', 'SPB', 'SPBN'].includes(x.op) && labels[x.a] === undefined) E(x.line, 'الـ Label "' + x.a + '" مش موجود في البرنامج');
+        if (['SPA', 'SPB', 'SPBN', 'JNB', 'JBI', 'JNBI'].includes(x.op) && labels[x.a] === undefined) E(x.line, 'الـ Label "' + x.a + '" مش موجود في البرنامج');
     });
-    return { prog: { ins, labels, lines }, errors };
+    return { prog: { ins, labels, lines, dbSizes }, errors, skipped, mnem, temps: tempLay.size, virtual };
 }
 
 // ---------- machine ----------
@@ -267,10 +448,14 @@ export type Counter = { val: number; su: boolean; sd: boolean; ss: boolean };
 
 export class Machine {
     prog: Program = { ins: [], labels: {}, lines: [] };
-    I = new Uint8Array(128); // actual inputs
-    PII = new Uint8Array(128); // process image of inputs (sampled at scan start)
-    Q = new Uint8Array(128);
-    M = new Uint8Array(256);
+    I = new Uint8Array(AREA_SIZE.I); // actual inputs
+    PII = new Uint8Array(AREA_SIZE.I); // process image of inputs (sampled at scan start)
+    Q = new Uint8Array(AREA_SIZE.Q);
+    M = new Uint8Array(AREA_SIZE.M);
+    PI = new Uint8Array(AREA_SIZE.PI); // peripheral inputs (PIB/PIW/PID)
+    PQ = new Uint8Array(AREA_SIZE.PQ); // peripheral outputs (PQB/PQW/PQD)
+    Lm = new Uint8Array(AREA_SIZE.L); // local (temp) data, cleared every scan
+    BR = false;
     timers: Record<number, Timer> = {};
     counters: Record<number, Counter> = {};
     acc1 = 0; acc2 = 0;
@@ -278,7 +463,7 @@ export class Machine {
     fresh = true; acc = false; rlo = false; newTerm = false;
     stack: any[] = [];
     dbs: Record<number, Uint8Array> = {}; dbReg = 0; diReg = 0;
-    dbArr(n: number) { return this.dbs[n] || (this.dbs[n] = new Uint8Array(DBSIZE)); }
+    dbArr(n: number) { return this.dbs[n] || (this.dbs[n] = new Uint8Array(Math.max(DBSIZE, (this.prog.dbSizes && this.prog.dbSizes[n]) || 0))); }
     pc = 0; inScan = false; scans = 0; lastScanMs = 0; scanStartClock = 0;
     clock = 0; // simulated ms
     error = '';
@@ -287,7 +472,7 @@ export class Machine {
     load(p: Program) { this.prog = p; this.pc = 0; this.inScan = false; this.resetChain(); this.error = ''; }
     resetChain() { this.fresh = true; this.acc = false; this.rlo = false; this.newTerm = false; this.stack = []; }
     reset() {
-        this.PII.fill(0); this.Q.fill(0); this.M.fill(0);
+        this.PII.fill(0); this.Q.fill(0); this.M.fill(0); this.PQ.fill(0); this.Lm.fill(0); this.BR = false;
         this.timers = {}; this.counters = {}; this.dbs = {}; this.dbReg = 0; this.diReg = 0;
         this.acc1 = this.acc2 = 0; this.RLO = false; this.STA = false;
         this.pc = 0; this.inScan = false; this.scans = 0; this.lastScanMs = 0; this.error = '';
@@ -304,9 +489,9 @@ export class Machine {
             if (!n) throw new Error('مفيش ' + (a.reg === 'DI' ? 'DI' : 'DB') + ' مفتوح. استخدم OPN ' + (a.reg === 'DI' ? 'DI' : 'DB') + '1 الأول');
             return this.dbArr(n);
         }
-        return a.area === 'I' ? this.PII : a.area === 'Q' ? this.Q : this.M;
+        return a.area === 'I' ? this.PII : a.area === 'Q' ? this.Q : a.area === 'L' ? this.Lm : a.area === 'PI' ? this.PI : a.area === 'PQ' ? this.PQ : this.M;
     }
-    getBit(a: Addr) { return ((this.arr(a)[a.byte] >> a.bit!) & 1) === 1; }
+    getBit(a: Addr) { if (a.byte >= this.arr(a).length) throw new Error('العنوان برا حجم الـ DB المفتوح'); return ((this.arr(a)[a.byte] >> a.bit!) & 1) === 1; }
     setBit(a: Addr, v: boolean) {
         const m = this.arr(a);
         if (v) m[a.byte] |= 1 << a.bit!; else m[a.byte] &= ~(1 << a.bit!);
@@ -314,11 +499,13 @@ export class Machine {
     }
     readN(a: Addr) {
         const m = this.arr(a); const n = a.size === 'B' ? 1 : a.size === 'W' ? 2 : 4;
+        if (a.byte + n > m.length) throw new Error('العنوان برا حجم الـ DB المفتوح');
         let v = 0; for (let i = 0; i < n; i++) v = (v * 256) + m[a.byte + i];
         return v >>> 0;
     }
     writeN(a: Addr, v: number) {
         const m = this.arr(a); const n = a.size === 'B' ? 1 : a.size === 'W' ? 2 : 4;
+        if (a.byte + n > m.length) throw new Error('العنوان برا حجم الـ DB المفتوح');
         for (let i = 0; i < n; i++) m[a.byte + i] = (v >>> (8 * (n - 1 - i))) & 255;
     }
     timer(n: number): Timer { return this.timers[n] || (this.timers[n] = { kind: '', rem: 0, pre: 0, base: 2, running: false, started: false, sig: false }); }
@@ -358,7 +545,7 @@ export class Machine {
     step(): boolean {
         const ins = this.prog.ins;
         if (!this.inScan) {
-            this.inScan = true; this.pc = 0; this.PII.set(this.I); this.scanStartClock = this.clock; this.lastInstrCount = 0;
+            this.inScan = true; this.pc = 0; this.PII.set(this.I); this.Lm.fill(0); this.scanStartClock = this.clock; this.lastInstrCount = 0;
             this.resetChain();
         }
         if (this.pc >= ins.length) { this.endScan(); return false; }
@@ -458,7 +645,14 @@ export class Machine {
                 const r = this.RLO_now(); const jump = op === 'SPB' ? r : !r;
                 this.RLO = true; this.STA = true; this.resetChain(); this.RLO = true;
                 if (jump) next = this.prog.labels[a];
-            } else if (op === 'BE') next = ins.length;
+            } else if (op === 'JNB' || op === 'JBI' || op === 'JNBI') {
+                const r = this.RLO_now(); let jump: boolean;
+                if (op === 'JNB') { jump = !r; this.BR = r; } else jump = op === 'JBI' ? this.BR : !this.BR;
+                this.resetChain(); this.RLO = op === 'JNB' ? true : r; this.STA = true;
+                if (jump) next = this.prog.labels[a];
+            } else if (op === 'SAVE') this.BR = this.RLO_now();
+            else if (op === 'CALLSKIP') { const r = this.RLO_now(); this.resetChain(); this.RLO = r; }
+            else if (op === 'BE') next = ins.length;
             else if (op === 'BEB') { const r = this.RLO_now(); this.RLO = true; this.resetChain(); this.RLO = true; if (r) next = ins.length; }
         } catch (e: any) { this.error = 'خطأ تنفيذ: ' + (e && e.message); next = ins.length; }
         this.pc = next;

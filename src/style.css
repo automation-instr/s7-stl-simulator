@@ -70,3 +70,13 @@ body { background: #0d1117; }
 .s7 summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; font-weight: 700; color: #ffb020; }
 @media (min-width: 700px) { .s7 { max-width: 720px; margin: 0 auto; } }
 .s7-tc .s7-led { flex: none; width: 46px; min-height: 42px; }
+.s7-wrow { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 0; border-bottom: 1px solid #1d2530; }
+.s7-wn { flex: 1; min-width: 0; direction: ltr; text-align: left; }
+.s7-wn b { display: block; font: 600 12px ui-monospace, Menlo, Consolas, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #e6edf3; }
+.s7-wn small { display: block; font: 11px ui-monospace, monospace; color: #8b98a9; }
+.s7-num { width: 96px; min-height: 40px; background: #0d1117; color: #ffb020; border: 1px solid #364252; border-radius: 8px; padding: 0 8px; font: 700 14px ui-monospace, monospace; text-align: right; }
+.s7-skip { max-height: 220px; overflow: auto; direction: ltr; text-align: left; font: 12px ui-monospace, monospace; margin: 6px 0; }
+.s7-skip small { color: #8b98a9; }
+.s7-hint{overflow-wrap:anywhere}
+.s7-sel{min-width:0;max-width:100%}
+.s7-wrow .s7-led{min-width:72px;flex-direction:row;justify-content:center;gap:6px}
