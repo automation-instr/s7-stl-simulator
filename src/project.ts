@@ -1,9 +1,10 @@
 /* eslint-disable */
-import { Block, DbLayout, splitBlocks, dbLayouts, parseSymList, parseSymText, detectMnem } from './engine';
+import { Block, DbLayout, splitBlocks, dbLayouts, parseSymList, parseSymText, detectMnem, parseSymInfo, parseBlockCatalog } from './engine';
 
 export type Proj = {
     blocks: Block[]; symbols: Record<string, string>; dbs: Record<number, DbLayout>;
     mnem: 'en' | 'de'; files: string[]; warn: string[]; symCount: number;
+    catalog?: { kind: string; num: number; name: string; comment: string }[];
 };
 
 export function decodeText(buf: Uint8Array): string {
@@ -39,6 +40,7 @@ export async function unzip(buf: Uint8Array, want: (name: string) => boolean): P
 }
 
 const isSrc = (n: string) => /\.(awl|stl|src|txt)$/i.test(n);
+const isCat = (n: string) => /ombstx[\\/]offline[\\/][^\\/]+[\\/]baustein\.dbf$/i.test(n);
 const isSymFile = (n: string) => /symlist\.dbf$/i.test(n) || /\.(sdf|asc|sym|csv)$/i.test(n);
 
 export type Loaded = { kind: 'program'; text: string; name: string } | { kind: 'project'; proj: Proj };
@@ -46,15 +48,17 @@ export type Loaded = { kind: 'program'; text: string; name: string } | { kind: '
 export async function loadFiles(files: { name: string; data: Uint8Array }[]): Promise<Loaded> {
     let all: { name: string; data: Uint8Array }[] = [];
     for (const f of files) {
-        if (/\.zip$/i.test(f.name) || (f.data[0] === 0x50 && f.data[1] === 0x4b)) all.push(...await unzip(f.data, n => isSrc(n) || isSymFile(n)));
+        if (/\.zip$/i.test(f.name) || (f.data[0] === 0x50 && f.data[1] === 0x4b)) all.push(...await unzip(f.data, n => isSrc(n) || isSymFile(n) || isCat(n)));
         else all.push(f);
     }
     const blocks: Block[] = []; let symbols: Record<string, string> = {}; const used: string[] = []; const warn: string[] = []; const srcs: string[] = [];
-    let single = ''; let nBin = 0, nSrc = 0;
+    let single = ''; let nBin = 0, nSrc = 0; const cats: { kind: string; num: number }[] = []; let info: Record<string, { name: string; comment: string }> = {};
     for (const f of all) {
+        if (isCat(f.name)) { try { cats.push(...parseBlockCatalog(f.data)); } catch { } continue; }
         if (isSymFile(f.name)) {
             if (!/\.dbf$/i.test(f.name) && all.some(x => /symlist\.dbf$/i.test(x.name))) continue; // a real symbol table is present
             try {
+                if (/symlist\.dbf$/i.test(f.name)) { try { Object.assign(info, parseSymInfo(f.data)); } catch { } }
                 const s = /\.dbf$/i.test(f.name) ? parseSymList(f.data) : parseSymText(decodeText(f.data));
                 const c = Object.keys(s).length; if (c) { Object.assign(symbols, s); used.push('Symbol table: ' + f.name.split('/').pop() + ' (' + c + ' symbols)'); }
             } catch (e: any) { warn.push(f.name + ': ' + e.message); }
@@ -75,10 +79,13 @@ export async function loadFiles(files: { name: string; data: Uint8Array }[]): Pr
         return { kind: 'project', proj: { blocks: [], symbols, dbs: {}, mnem: 'en', files: used, warn, symCount: nSym } };
     }
     const { dbs, warn: w2 } = dbLayouts(blocks);
+    const KL: Record<string, string> = { FUNCTION: 'FC', FUNCTION_BLOCK: 'FB', ORGANIZATION_BLOCK: 'OB', DATA_BLOCK: 'DB', TYPE: 'UDT' };
+    for (const b of blocks) { if (b.db) { b.num = b.db; continue; } const m = /^(FC|FB|OB|UDT)\s*(\d+)$/i.exec(b.name) || /^(FC|FB|OB|UDT)\s*(\d+)$/i.exec(symbols[b.name.toUpperCase()] || ''); if (m) b.num = +m[2]; else { const a = Object.keys(info).find(k => info[k].name.toUpperCase() === b.name.toUpperCase() && k.startsWith(KL[b.kind] || '??')); if (a) b.num = +a.replace(/\D/g, ''); } }
+    const seenC = new Set<string>(); const catalog = cats.filter(c => { const k = c.kind + c.num; if (seenC.has(k)) return false; seenC.add(k); return true; }).map(c => ({ kind: c.kind, num: c.num, name: (info[c.kind + c.num] || { name: '' }).name, comment: (info[c.kind + c.num] || { comment: '' }).comment }));
     // blocks that appear twice (same name): keep the last one
     const seen = new Map<string, number>(); blocks.forEach((b, i) => seen.set(b.kind + ':' + b.name, i));
     const uniq = blocks.filter((b, i) => seen.get(b.kind + ':' + b.name) === i);
-    return { kind: 'project', proj: { blocks: uniq, symbols, dbs, mnem: detectMnem(srcs.join('\n')), files: used, warn: warn.concat(w2), symCount: nSym } };
+    return { kind: 'project', proj: { blocks: uniq, symbols, dbs, mnem: detectMnem(srcs.join('\n')), files: used, warn: warn.concat(w2), symCount: nSym, catalog: catalog.length ? catalog : undefined } };
 }
 
 // ---- IndexedDB persistence for the (large) project

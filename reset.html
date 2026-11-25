@@ -1,0 +1,10 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Updating...</title>
+<style>body{background:#0b0f14;color:#e6edf3;font:16px system-ui;padding:28px}</style></head><body><p id="m">Updating the simulator...</p>
+<script>
+(async()=>{try{
+const rs=await navigator.serviceWorker.getRegistrations();await Promise.all(rs.map(r=>r.unregister()));
+const ks=await caches.keys();await Promise.all(ks.map(k=>caches.delete(k)));
+document.getElementById('m').textContent='Updated. Opening the latest version...';
+}catch(e){document.getElementById('m').textContent='Done.';}
+setTimeout(()=>location.replace('./?fresh='+Date.now()),700);})();
+</script></body></html>

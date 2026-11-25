@@ -3,7 +3,22 @@ import { compile, Machine, TIMER_NAME, Ctx } from './engine';
 import { Proj, loadFiles, idbPut, idbGet, idbDel } from './project';
 import { EXAMPLES } from './examples';
 import { BlockSheet, KIND_LABEL } from './BlockSheet';
-const GROUP_NAME: Record<string, string> = { OB: 'Organization blocks', FB: 'Function blocks', FC: 'Functions', DB: 'Data blocks', UDT: 'User data types' };
+const GROUP_NAME: Record<string, string> = { OB: 'Organization blocks', FB: 'Function blocks', FC: 'Functions', DB: 'Data blocks', UDT: 'User data types', SFC: 'System functions', SFB: 'System function blocks', VAT: 'Variable tables' };
+const GROUPS = ['OB', 'FB', 'FC', 'DB', 'UDT', 'SFC', 'SFB', 'VAT'];
+type Row = { key: string; kind: string; name: string; title: string; blk?: any };
+const rowsOf = (proj: any): Row[] => {
+    const rows: Row[] = []; const used = new Set<any>();
+    if (proj.catalog) {
+        const sorted = proj.catalog.slice().sort((a: any, b: any) => a.num - b.num);
+        for (const c of sorted) {
+            const b = proj.blocks.find((x: any) => KIND_LABEL[x.kind] === c.kind && x.num === c.num);
+            if (b) used.add(b);
+            rows.push({ key: c.kind + c.num, kind: c.kind, name: c.name || (b ? b.name : c.kind + c.num), title: (b ? titleOf(b.text) : '') || c.comment || (c.name ? c.kind + c.num : ''), blk: b });
+        }
+    }
+    for (const b of proj.blocks) if (!used.has(b)) rows.push({ key: 'src:' + b.name, kind: KIND_LABEL[b.kind] || b.kind, name: b.name, title: titleOf(b.text), blk: b });
+    return rows;
+};
 const titleOf = (t: string) => { const m = /^\s*TITLE\s*=(.*)$/m.exec(t.split('\n').slice(0, 6).join('\n')); return m ? m[1].trim() : ''; };
 const WELCOME = '// Welcome. Open "Examples" to pick a ready-made program,\n// load your own AWL/ZIP project, or type STL here.\n';
 
@@ -204,7 +219,7 @@ export function App() {
 
     return <div className="s7">
         <div className="s7-top">
-            <div className="s7-title">{'S7-300 Simulator (STL)'}<small>{'Siemens STEP 7 Classic | Version 1.3'}</small></div>
+            <div className="s7-title">{'S7-300 Simulator (STL)'}<small>{'Siemens STEP 7 Classic | Version 1.3.1'}</small></div>
             <div className={'s7-mode ' + (running ? 'run' : 'stop')}>{running ? 'RUN' : 'STOP'}</div>
         </div>
 
@@ -254,29 +269,32 @@ export function App() {
             <div className="s7-h">{'Loaded project'}<span>{proj.symCount} {'symbols |'} {Object.keys(proj.dbs).length} DB</span></div>
             <div className="s7-hint" style={{ marginTop: 0 }}>{proj.files.join(' | ')}</div>
             <input className="s7-sel" style={{ width: '100%', marginBottom: 8 }} dir="ltr" value={bfilter} placeholder={'Filter blocks by name or title'} aria-label="Filter blocks" onChange={e => setBfilter(e.target.value)} />
-            {['OB', 'FB', 'FC', 'DB', 'UDT'].map(g => {
-                const items = proj.blocks.filter(x => KIND_LABEL[x.kind] === g && (!bfilter || (x.name + ' ' + titleOf(x.text)).toLowerCase().includes(bfilter.toLowerCase())));
-                const total = proj.blocks.filter(x => KIND_LABEL[x.kind] === g).length;
-                if (!total) return null;
-                return <details className="s7-grp" key={g} open={g !== 'DB' && g !== 'UDT' || !!bfilter}>
-                    <summary>{g}<span>{GROUP_NAME[g]} | {bfilter ? items.length + ' / ' : ''}{total}</span></summary>
-                    {items.slice(0, 200).map(x => {
-                        const v: any = verdicts.find((y: any) => y.name === x.name);
-                        return <div className={'s7-tc' + (blk === x.name ? ' q' : '')} key={x.name}>
+            {GROUPS.map(g => {
+                const all = rowsOf(proj).filter(r => r.kind === g);
+                const items = all.filter(r => !bfilter || (r.name + ' ' + r.title).toLowerCase().includes(bfilter.toLowerCase()));
+                if (!all.length) return null;
+                const withSrc = all.filter(r => r.blk).length;
+                return <details className="s7-grp" key={g} open={(g === 'FC' || g === 'FB' || g === 'OB') && all.length < 40 || !!bfilter}>
+                    <summary>{g}<span>{GROUP_NAME[g]} | {bfilter ? items.length + ' / ' : ''}{all.length}{withSrc < all.length ? ' (' + withSrc + ' with source)' : ''}</span></summary>
+                    {items.slice(0, 200).map(r => {
+                        const x = r.blk; const v: any = x && verdicts.find((y: any) => y.name === x.name);
+                        return <div className={'s7-tc' + (x && blk === x.name ? ' q' : '')} key={r.key} style={x ? undefined : { opacity: .6 }}>
                             <div style={{ flex: 1, minWidth: 0 }}>
-                                <div className="nm" style={{ direction: 'ltr', textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis' }}>{x.name}<small>{x.text.split('\n').length} {'lines'}</small></div>
-                                {titleOf(x.text) && <div className="s7-hint" style={{ marginTop: 2 }}>{titleOf(x.text)}</div>}
+                                <div className="nm" style={{ direction: 'ltr', textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.name}{x && <small>{x.text.split('\n').length} {'lines'}</small>}</div>
+                                {r.title && <div className="s7-hint" style={{ marginTop: 2 }}>{r.title}</div>}
+                                {!x && <div className="s7-hint" style={{ marginTop: 2 }}>{'Compiled block only: no source in the files you loaded'}</div>}
                                 {v && <div className="s7-hint" style={{ marginTop: 2, color: v.err ? '#ff8a80' : v.skip ? '#ffcc80' : '#81c995' }}>
                                     {v.err ? 'Cannot load: ' + v.err + ' error(s)' : v.skip ? 'Loads (' + v.ins + ' instructions) with ' + v.skip + ' skipped CALL(s)' : 'Loads (' + v.ins + ' instructions)'}{v.virt ? ' | ' + v.virt + ' virtual DB field(s)' : ''}
                                 </div>}
                             </div>
-                            <button type="button" className="s7-chip" onClick={() => setViewBlk(x.name)}>{'View'}</button>
+                            {x && <button type="button" className="s7-chip" onClick={() => setViewBlk(x.name)}>{'View'}</button>}
                             {v && <button type="button" className="s7-chip" onClick={() => pickBlock(x.name)}>{'Load'}</button>}
                         </div>;
                     })}
                     {items.length > 200 && <div className="s7-hint">{'Showing 200. Use the filter to narrow.'}</div>}
                 </details>;
             })}
+            {proj.catalog && <div className="s7-hint">{'Block directory read from the project database: ' + proj.catalog.length + ' blocks, ' + proj.blocks.length + ' with exported source.'}</div>}
             {proj.warn.length > 0 && <div className="s7-hint">{proj.warn.slice(0, 3).join(' | ')}</div>}
             <div className="s7-row"><button type="button" className="s7-chip" onClick={() => { setProj(null); setBlk(''); idbDel('project'); setFileMsg('Loaded project cleared'); }}>{'Clear project'}</button></div>
         </div>}

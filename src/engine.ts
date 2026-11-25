@@ -9,7 +9,7 @@ export type DbLayout = { size: number; fields: Record<string, Field> };
 export type Ctx = { symbols?: Record<string, string>; dbs?: Record<number, DbLayout>; mnem?: 'auto' | 'en' | 'de'; virtualDb?: boolean };
 export type VField = { db: number; name: string; type: string; first: number };
 export type Skipped = { line: number; callee: string; net: number; title: string };
-export type Block = { kind: string; name: string; text: string; line0: number; db?: number };
+export type Block = { kind: string; name: string; text: string; line0: number; db?: number; num?: number };
 
 const BITOPS = ['A', 'AN', 'O', 'ON', 'X', 'XN'];
 const ALIAS: Record<string, string> = {
@@ -210,6 +210,31 @@ export function parseSymList(buf: Uint8Array): Record<string, string> {
         const r = hlen + i * rlen; if (r + rlen > buf.length) break; if (buf[r] === 0x2a) continue;
         const n = rd(r, fS), a = rd(r, fO); if (n && a) out[n.toUpperCase()] = a.replace(/\s+/g, ' ');
     }
+    return out;
+}
+// symbol info keyed by compact address ("FC20"): original name and comment
+export function parseSymInfo(buf: Uint8Array): Record<string, { name: string; comment: string }> {
+    const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+    const hlen = dv.getUint16(8, true), rlen = dv.getUint16(10, true), nrec = dv.getUint32(4, true);
+    const flds: { name: string; len: number; off: number }[] = []; let off = 1;
+    for (let p = 32; p + 32 <= hlen && buf[p] !== 0x0d; p += 32) { let nm = ''; for (let i = 0; i < 11 && buf[p + i]; i++) nm += String.fromCharCode(buf[p + i]); const len = buf[p + 16]; flds.push({ name: nm, len, off }); off += len; }
+    const fS = flds.find(f => f.name === '_SKZ'), fO = flds.find(f => f.name === '_OPIEC'), fC = flds.find(f => f.name === '_COMMENT');
+    const out: Record<string, { name: string; comment: string }> = {}; if (!fS || !fO) return out;
+    const rd = (r: number, f: { len: number; off: number }) => { let s = ''; for (let i = 0; i < f.len; i++) { const c = buf[r + f.off + i]; if (c) s += String.fromCharCode(c); } return s.trim(); };
+    for (let i = 0; i < nrec; i++) { const r = hlen + i * rlen; if (r + rlen > buf.length) break; if (buf[r] === 0x2a) continue; const n = rd(r, fS), a = rd(r, fO).replace(/\s+/g, '').toUpperCase(); if (n && /^(OB|FB|FC|DB|UDT|SFC|SFB|VAT)\d+$/.test(a)) out[a] = { name: n, comment: fC ? rd(r, fC) : '' }; }
+    return out;
+}
+// block directory of a STEP 7 project (ombstx/offline/*/BAUSTEIN.DBF): [{kind, num}] of non-deleted blocks
+const CAT_KIND: Record<number, string> = { 0: 'UDT', 8: 'OB', 10: 'DB', 12: 'FC', 13: 'SFC', 14: 'FB', 15: 'SFB', 27: 'VAT' };
+export function parseBlockCatalog(buf: Uint8Array): { kind: string; num: number }[] {
+    const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+    const hlen = dv.getUint16(8, true), rlen = dv.getUint16(10, true), nrec = dv.getUint32(4, true);
+    const flds: { name: string; len: number; off: number }[] = []; let off = 1;
+    for (let p = 32; p + 32 <= hlen && buf[p] !== 0x0d; p += 32) { let nm = ''; for (let i = 0; i < 11 && buf[p + i]; i++) nm += String.fromCharCode(buf[p + i]); const len = buf[p + 16]; flds.push({ name: nm, len, off }); off += len; }
+    const fT = flds.find(f => f.name === 'TYP'), fN = flds.find(f => f.name === 'NUMMER'); const out: { kind: string; num: number }[] = [];
+    if (!fT || !fN) return out;
+    const rd = (r: number, f: { len: number; off: number }) => { let s = ''; for (let i = 0; i < f.len; i++) { const c = buf[r + f.off + i]; if (c) s += String.fromCharCode(c); } return s.trim(); };
+    for (let i = 0; i < nrec; i++) { const r = hlen + i * rlen; if (r + rlen > buf.length) break; if (buf[r] === 0x2a) continue; const k = CAT_KIND[+rd(r, fT)]; if (k) out.push({ kind: k, num: +rd(r, fN) }); }
     return out;
 }
 // plain text symbol table: "NAME<TAB or comma>ADDRESS" per line, or "NAME  ADDRESS" (SDF/ASC export)
