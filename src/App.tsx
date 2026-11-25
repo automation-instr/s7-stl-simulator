@@ -222,7 +222,7 @@ export function App() {
 
     return <div className="s7">
         <div className="s7-top">
-            <div className="s7-title">{'S7-300 Simulator (STL)'}<small>{'Siemens STEP 7 Classic | Version 1.3.2'}</small></div>
+            <div className="s7-title">{'S7-300 Simulator (STL)'}<small>{'Siemens STEP 7 Classic | Version 1.3.3'}</small></div>
             <div className={'s7-mode ' + (running ? 'run' : 'stop')}>{running ? 'RUN' : 'STOP'}</div>
         </div>
 
@@ -315,7 +315,7 @@ export function App() {
 
 
         <div className="s7-panel">
-            <div className="s7-h">{'Program (STL)'}<span>{lineCount} {'lines'}{proj && blk ? ' | ' + blk : ''}</span></div>
+            <div className="s7-h">{'Program'}<span>{lineCount} {'lines'}{proj && blk ? ' | ' + blk : ''}</span></div>
             {cur && <div className="s7-savebar">
                 <input className="s7-sel" value={saveName} placeholder={'Program name'} maxLength={40} onChange={e => setSaveName(e.target.value)} aria-label={'Program name'} onKeyDown={e => { if (e.key === 'Enter') doSave(); }} />
                 <button type="button" className="s7-chip on" onClick={doSave}>{'💾 Save'}</button>
