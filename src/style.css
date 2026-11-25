@@ -1,50 +1,52 @@
 html, body, #root { margin: 0; min-height: 100%; }
-body { background: #0d1117; }
-.s7 { direction: rtl; background: #0d1117; color: #e6edf3; min-height: 100vh; font-family: system-ui, -apple-system, "Segoe UI", Tahoma, "Noto Sans Arabic", sans-serif; padding: 10px 10px 40px; box-sizing: border-box; font-size: 15px; -webkit-tap-highlight-color: transparent; }
+body { background: #0b0f14; }
+.s7 { background: #0b0f14; color: #e6edf3; min-height: 100vh; font-family: system-ui, -apple-system, "Segoe UI", Tahoma, sans-serif; padding: 10px 10px 40px; box-sizing: border-box; font-size: 15px; -webkit-tap-highlight-color: transparent; }
 .s7 * { box-sizing: border-box; }
-.s7-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 2px 10px; border-bottom: 2px solid #ffb020; margin-bottom: 10px; }
-.s7-title { font-size: 18px; font-weight: 800; letter-spacing: .2px; }
+.s7-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 2px 10px; border-bottom: 1px solid #242e3b; margin-bottom: 12px; }
+.s7-title { font-size: 18px; font-weight: 700; letter-spacing: -.1px; }
+.s7-title::before { content: "S7"; display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; margin-right: 10px; border-radius: 8px; background: linear-gradient(135deg,#4da3ff,#2563eb); color: #fff; font: 800 13px ui-monospace,monospace; vertical-align: middle; }
+.s7-title small { margin-left: 40px; }
 .s7-title small { display: block; font-size: 12px; font-weight: 500; color: #8b98a9; }
 .s7-mode { font-family: ui-monospace, Menlo, Consolas, monospace; font-weight: 800; padding: 6px 12px; border-radius: 6px; font-size: 14px; direction: ltr; }
 .s7-mode.run { background: #123a22; color: #3ddc84; border: 1px solid #3ddc84; }
-.s7-mode.stop { background: #3a2a0a; color: #ffb020; border: 1px solid #ffb020; }
-.s7-panel { background: #151b23; border: 1px solid #2a3340; border-radius: 10px; padding: 10px; margin-bottom: 10px; }
-.s7-h { font-size: 13px; font-weight: 700; color: #ffb020; margin: 0 0 8px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-.s7-h span { color: #8b98a9; font-weight: 500; font-size: 12px; }
+.s7-mode.stop { background: #3a2a0a; color: #ffb020; border: 1px solid #ffb02088; }
+.s7-panel { background: #121821; border: 1px solid #242e3b; border-radius: 12px; padding: 14px; margin-bottom: 12px; box-shadow: 0 1px 0 #ffffff08 inset, 0 6px 18px #00000040; }
+.s7-h { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: #8fb8e8; margin: 0 0 10px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.s7-h span { color: #8b98a9; font-weight: 500; font-size: 12px; text-transform: none; letter-spacing: 0; }
 .s7-ctl { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
-.s7-btn { min-height: 52px; border-radius: 10px; border: 1px solid #36425220; background: #222c38; color: #e6edf3; font-size: 15px; font-weight: 700; font-family: inherit; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding: 4px; border: 1px solid #364252; }
+.s7-btn { min-height: 56px; border-radius: 12px; border: 1px solid #36425220; background: linear-gradient(#212b38,#1a222d); color: #e6edf3; font-size: 14px; font-weight: 600; font-family: inherit; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding: 4px; border: 1px solid #364252; }
 .s7-btn b { font-size: 18px; line-height: 1; }
 .s7-btn:active { transform: scale(.97); }
-.s7-btn.go { background: #14532d; border-color: #3ddc84; }
+.s7-btn.go { background: linear-gradient(#17623a,#14532d); border-color: #3ddc84; }
 .s7-btn.pause { background: #4a3408; border-color: #ffb020; }
 .s7-btn:disabled { opacity: .4; }
 .s7-row { display: flex; gap: 8px; margin-top: 8px; align-items: center; flex-wrap: wrap; }
-.s7-sel { flex: 1; min-height: 44px; background: #0d1117; color: #e6edf3; border: 1px solid #364252; border-radius: 8px; padding: 0 8px; font-family: inherit; font-size: 14px; }
+.s7-sel { flex: 1; min-height: 44px; background: #0b0f14; color: #e6edf3; border: 1px solid #364252; border-radius: 8px; padding: 0 8px; font-family: inherit; font-size: 14px; }
 .s7-chips { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
-.s7-chip { flex: 0 0 auto; min-height: 44px; padding: 0 14px; border-radius: 22px; border: 1px solid #364252; background: #0d1117; color: #e6edf3; font-family: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
-.s7-chip.on { background: #ffb020; color: #1a1200; border-color: #ffb020; }
+.s7-chip { flex: 0 0 auto; min-height: 44px; padding: 0 14px; border-radius: 22px; border: 1px solid #364252; background: #0b0f14; color: #e6edf3; font-family: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+.s7-chip.on { background: #4da3ff; color: #04121f; border-color: #4da3ff; }
 .s7-hint { font-size: 12.5px; color: #8b98a9; margin-top: 6px; line-height: 1.5; }
-.s7-ed { position: relative; height: 300px; direction: ltr; background: #0a0e13; border: 1px solid #2a3340; border-radius: 8px; overflow: hidden; }
-.s7-gut { position: absolute; left: 0; top: 0; bottom: 0; width: 38px; background: #10161d; border-right: 1px solid #2a3340; overflow: hidden; z-index: 3; }
+.s7-ed { position: relative; height: 300px; direction: ltr; background: #0a0e13; border: 1px solid #242e3b; border-radius: 8px; overflow: hidden; }
+.s7-gut { position: absolute; left: 0; top: 0; bottom: 0; width: 38px; background: #10161d; border-right: 1px solid #242e3b; overflow: hidden; z-index: 3; }
 .s7-gut div { height: 22px; line-height: 22px; text-align: right; padding-right: 6px; font: 12px/22px ui-monospace, Menlo, Consolas, monospace; color: #5d6b7d; }
 .s7-gut div.err { color: #fff; background: #b3261e; }
-.s7-gut div.cur { color: #1a1200; background: #ffb020; font-weight: 800; }
-.s7-ta { position: absolute; inset: 0; width: 100%; height: 100%; padding: 8px 8px 8px 46px; margin: 0; border: 0; resize: none; outline: none; background: transparent; color: #d7e3f0; font: 14px/22px ui-monospace, Menlo, Consolas, "Courier New", monospace; white-space: pre; overflow: auto; direction: ltr; text-align: left; tab-size: 4; z-index: 2; caret-color: #ffb020; }
+.s7-gut div.cur { color: #04121f; background: #4da3ff; font-weight: 800; }
+.s7-ta { position: absolute; inset: 0; width: 100%; height: 100%; padding: 8px 8px 8px 46px; margin: 0; border: 0; resize: none; outline: none; background: transparent; color: #d7e3f0; font: 14px/22px ui-monospace, Menlo, Consolas, "Courier New", monospace; white-space: pre; overflow: auto; direction: ltr; text-align: left; tab-size: 4; z-index: 2; caret-color: #4da3ff; }
 .s7-bar { position: absolute; left: 38px; right: 0; height: 22px; pointer-events: none; z-index: 1; }
-.s7-bar.cur { background: #ffb02033; border-top: 1px solid #ffb02088; border-bottom: 1px solid #ffb02088; }
+.s7-bar.cur { background: #4da3ff33; border-top: 1px solid #4da3ff88; border-bottom: 1px solid #4da3ff88; }
 .s7-bar.err { background: #ff5d5d22; border-bottom: 1px dashed #ff5d5d; }
 .s7-errs { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
 .s7-err { background: #3a1513; border: 1px solid #b3261e; border-radius: 8px; padding: 8px 10px; font-size: 13.5px; line-height: 1.5; }
 .s7-err b { direction: ltr; unicode-bidi: isolate; color: #ff8a80; font-family: ui-monospace, monospace; }
 .s7-ok { color: #3ddc84; font-size: 13px; margin-top: 8px; }
 .s7-st { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
-.s7-cell { background: #0d1117; border: 1px solid #2a3340; border-radius: 8px; padding: 8px; direction: ltr; text-align: left; }
+.s7-cell { background: #0b0f14; border: 1px solid #242e3b; border-radius: 8px; padding: 8px; direction: ltr; text-align: left; }
 .s7-cell label { display: block; font-size: 11px; color: #8b98a9; font-family: system-ui, sans-serif; margin-bottom: 2px; }
 .s7-cell code { font: 700 15px ui-monospace, Menlo, Consolas, monospace; color: #e6edf3; }
 .s7-flags { display: flex; gap: 8px; margin-top: 8px; direction: ltr; }
-.s7-flag { flex: 1; text-align: center; border-radius: 8px; padding: 8px 2px; font: 700 13px ui-monospace, monospace; background: #0d1117; border: 1px solid #2a3340; color: #5d6b7d; }
+.s7-flag { flex: 1; text-align: center; border-radius: 8px; padding: 8px 2px; font: 700 13px ui-monospace, monospace; background: #0b0f14; border: 1px solid #242e3b; color: #5d6b7d; }
 .s7-flag.on { background: #123a22; color: #3ddc84; border-color: #3ddc84; }
-.s7-next { margin-top: 8px; font: 13px ui-monospace, Menlo, monospace; direction: ltr; text-align: left; color: #ffb020; background: #0d1117; border-radius: 8px; padding: 8px; border: 1px solid #2a3340; overflow-x: auto; white-space: pre; }
+.s7-next { margin-top: 8px; font: 13px ui-monospace, Menlo, monospace; direction: ltr; text-align: left; color: #4da3ff; background: #0b0f14; border-radius: 8px; padding: 8px; border: 1px solid #242e3b; overflow-x: auto; white-space: pre; }
 .s7-byte { margin-bottom: 10px; }
 .s7-byte > em { display: block; font-style: normal; direction: ltr; text-align: left; font: 700 12px ui-monospace, monospace; color: #8b98a9; margin-bottom: 4px; }
 .s7-leds { display: grid; grid-template-columns: repeat(8, 1fr); gap: 4px; direction: ltr; }
@@ -57,26 +59,38 @@ body { background: #0d1117; }
 .s7-led.ro { cursor: default; }
 .s7-led:active:not(.ro) { transform: scale(.95); }
 .s7-watch { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
-.s7-tc { display: flex; justify-content: space-between; align-items: center; gap: 8px; background: #0d1117; border: 1px solid #2a3340; border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; }
+.s7-tc { display: flex; justify-content: space-between; align-items: center; gap: 8px; background: #0b0f14; border: 1px solid #242e3b; border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; }
 .s7-tc.q { border-color: #3ddc84; }
 .s7-tc .nm { font: 800 15px ui-monospace, monospace; direction: ltr; }
 .s7-tc .nm small { font-weight: 500; color: #8b98a9; margin-left: 6px; }
 .s7-tc .vl { font: 700 15px ui-monospace, monospace; direction: ltr; text-align: right; }
 .s7-prog { height: 6px; background: #243040; border-radius: 3px; margin-top: 6px; overflow: hidden; direction: ltr; }
-.s7-prog div { height: 100%; background: #ffb020; }
+.s7-prog div { height: 100%; background: #4da3ff; }
 .s7-info p { margin: 4px 0; font-size: 13.5px; line-height: 1.65; color: #c5d0dc; }
-.s7-info b { color: #ffb020; }
-.s7-warn { background: #3a2a0a; border: 1px solid #ffb020; border-radius: 8px; padding: 8px 10px; font-size: 13px; margin-top: 8px; }
-.s7 summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; font-weight: 700; color: #ffb020; }
+.s7-info b { color: #4da3ff; }
+.s7-warn { background: #3a2a0a; border: 1px solid #4da3ff; border-radius: 8px; padding: 8px 10px; font-size: 13px; margin-top: 8px; }
+.s7 summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; font-weight: 700; color: #4da3ff; }
 @media (min-width: 700px) { .s7 { max-width: 720px; margin: 0 auto; } }
 .s7-tc .s7-led { flex: none; width: 46px; min-height: 42px; }
 .s7-wrow { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 0; border-bottom: 1px solid #1d2530; }
 .s7-wn { flex: 1; min-width: 0; direction: ltr; text-align: left; }
 .s7-wn b { display: block; font: 600 12px ui-monospace, Menlo, Consolas, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #e6edf3; }
 .s7-wn small { display: block; font: 11px ui-monospace, monospace; color: #8b98a9; }
-.s7-num { width: 96px; min-height: 40px; background: #0d1117; color: #ffb020; border: 1px solid #364252; border-radius: 8px; padding: 0 8px; font: 700 14px ui-monospace, monospace; text-align: right; }
+.s7-num { width: 96px; min-height: 40px; background: #0b0f14; color: #4da3ff; border: 1px solid #364252; border-radius: 8px; padding: 0 8px; font: 700 14px ui-monospace, monospace; text-align: right; }
 .s7-skip { max-height: 220px; overflow: auto; direction: ltr; text-align: left; font: 12px ui-monospace, monospace; margin: 6px 0; }
 .s7-skip small { color: #8b98a9; }
 .s7-hint{overflow-wrap:anywhere}
 .s7-sel{min-width:0;max-width:100%}
 .s7-wrow .s7-led{min-width:72px;flex-direction:row;justify-content:center;gap:6px}
+
+.s7-btn.wide { flex: 1; flex-direction: row; gap: 10px; min-height: 52px; }
+.s7-modal { position: fixed; inset: 0; background: #000000a8; display: flex; align-items: flex-end; justify-content: center; z-index: 50; backdrop-filter: blur(3px); }
+.s7-sheet { width: 100%; max-width: 560px; max-height: 82vh; overflow: auto; background: #121821; border: 1px solid #2f3b4b; border-radius: 16px 16px 0 0; padding: 14px 14px 24px; }
+@media (min-width: 700px) { .s7-modal { align-items: center; } .s7-sheet { border-radius: 16px; } }
+.s7-x { background: none; border: 0; color: #8b98a9; font-size: 18px; min-width: 44px; min-height: 36px; cursor: pointer; }
+.s7-ex { display: block; width: 100%; text-align: left; background: #0b0f14; border: 1px solid #242e3b; border-radius: 10px; padding: 12px 14px; margin-bottom: 8px; color: #e6edf3; font-family: inherit; cursor: pointer; }
+.s7-ex:active, .s7-ex:hover { border-color: #4da3ff; }
+.s7-ex b { display: block; font-size: 15px; font-weight: 600; }
+.s7-ex small { display: block; margin-top: 3px; font-size: 12.5px; color: #8b98a9; line-height: 1.45; }
+.s7-chip:focus-visible, .s7-btn:focus-visible, .s7-sel:focus-visible, .s7-ex:focus-visible { outline: 2px solid #4da3ff; outline-offset: 2px; }
+.s7-ta, .s7-ed { font-variant-ligatures: none; }

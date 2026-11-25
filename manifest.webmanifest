@@ -1,16 +1,16 @@
 {
- "name": "محاكي S7-300 STL",
+ "name": "S7-300 STL Simulator",
  "short_name": "S7 STL",
- "description": "محاكي برمجة Siemens S7-300 بلغة STL يشتغل أوفلاين",
- "lang": "ar",
- "dir": "rtl",
+ "description": "Siemens S7-300 STL simulator that runs offline",
+ "lang": "en",
+ "dir": "ltr",
  "start_url": "./",
  "scope": "./",
  "id": "./",
  "display": "standalone",
  "orientation": "portrait",
- "background_color": "#0d1117",
- "theme_color": "#0d1117",
+ "background_color": "#0b0f14",
+ "theme_color": "#0b0f14",
  "icons": [
   {
    "src": "icons/icon-192.png",

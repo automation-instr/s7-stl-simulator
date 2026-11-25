@@ -3,11 +3,11 @@ ver = sys.argv[1] if len(sys.argv)>1 else '1'
 subprocess.check_call(['/usr/lib/node_modules/tsx/node_modules/esbuild/bin/esbuild','src/standalone.tsx','--bundle','--minify','--target=es2019','--define:process.env.NODE_ENV="production"','--outfile=/tmp/pwa/app.js','--log-level=warning'])
 css=open('src/style.css').read(); js=open('app.js').read().replace('</script','<\\/script')
 html=f'''<!doctype html>
-<html lang="ar" dir="rtl">
+<html lang="en" dir="ltr">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>محاكي S7-300 STL</title>
+<title>S7-300 STL Simulator</title>
 <meta name="theme-color" content="#0d1117">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">

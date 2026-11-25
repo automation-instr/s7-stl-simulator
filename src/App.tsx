@@ -2,15 +2,16 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { compile, Machine, TIMER_NAME, Ctx } from './engine';
 import { Proj, loadFiles, idbPut, idbGet, idbDel } from './project';
 import { EXAMPLES } from './examples';
+const WELCOME = '// Welcome. Open "Examples" to pick a ready-made program,\n// load your own AWL/ZIP project, or type STL here.\n';
 
 const hex = (v: number, n = 8) => (v >>> 0).toString(16).toUpperCase().padStart(n, '0');
 const s16 = (v: number) => ((v & 0xffff) << 16) >> 16;
 const f32 = (bits: number) => new Float32Array(new Uint32Array([bits >>> 0]).buffer)[0];
 const fmtR = (bits: number) => { const f = f32(bits); return isFinite(f) ? String(parseFloat(f.toPrecision(7))) : '—'; };
 const SPEEDS = [
-    { ms: 500, label: 'بطيء (سكان كل 0.5 ث)' },
-    { ms: 100, label: 'متوسط (سكان كل 100 مللي)' },
-    { ms: 20, label: 'سريع (سكان كل 20 مللي)' },
+    { ms: 500, label: 'Slow (scan every 0.5 s)' },
+    { ms: 100, label: 'Medium (scan every 100 ms)' },
+    { ms: 20, label: 'Fast (scan every 20 ms)' },
 ];
 
 
@@ -35,8 +36,9 @@ export function App() {
     const m = useRef<Machine>(null as any);
     if (!m.current) m.current = new Machine();
     const mach = m.current;
-    const [text, setText] = useState(() => lsGet(LS_DRAFT) || EXAMPLES[0].code);
-    const [exId, setExId] = useState(() => (lsGet(LS_DRAFT) ? '' : 'motor'));
+    const [text, setText] = useState(() => lsGet(LS_DRAFT) || WELCOME);
+    const [pick, setPick] = useState(false);
+    const [exId, setExId] = useState('');
     const [progs, setProgs] = useState(loadProgs);
     const [saveName, setSaveName] = useState('');
     const [saveMsg, setSaveMsg] = useState('');
@@ -59,14 +61,14 @@ export function App() {
     useEffect(() => { const id = setTimeout(() => lsSet(LS_DRAFT, text), 400); return () => clearTimeout(id); }, [text]);
     const doSave = () => {
         const name = saveName.trim().slice(0, 40);
-        if (!name) { setSaveMsg('اكتب اسم للبرنامج الأول'); return; }
+        if (!name) { setSaveMsg('Type a name for the program first'); return; }
         const next = { ...progs, [name]: { code: text, ts: Date.now() } };
-        if (lsSet(LS_PROGS, JSON.stringify(next))) { setProgs(next); setSaveMsg('اتحفظ: ' + name); } else setSaveMsg('المتصفح رافض الحفظ (التخزين مقفول)');
+        if (lsSet(LS_PROGS, JSON.stringify(next))) { setProgs(next); setSaveMsg('Saved: ' + name); } else setSaveMsg('Browser refused to save (storage is blocked)');
     };
-    const doLoad = (name: string) => { setRunning(false); setText(progs[name].code); setExId(''); setSaveName(name); mach.I.fill(0); mach.reset(); bump(); setSaveMsg('اتفتح: ' + name); };
+    const doLoad = (name: string) => { setRunning(false); setText(progs[name].code); setExId(''); setSaveName(name); mach.I.fill(0); mach.reset(); bump(); setSaveMsg('Opened: ' + name); };
     const doDel = (name: string) => {
         if (delAsk !== name) { setDelAsk(name); return; }
-        const next = { ...progs }; delete next[name]; lsSet(LS_PROGS, JSON.stringify(next)); setProgs(next); setDelAsk(''); setSaveMsg('اتمسح: ' + name);
+        const next = { ...progs }; delete next[name]; lsSet(LS_PROGS, JSON.stringify(next)); setProgs(next); setDelAsk(''); setSaveMsg('Deleted: ' + name);
     };
     const ctx: Ctx = useMemo(() => proj ? { symbols: proj.symbols, dbs: proj.dbs, mnem: mnemSel === 'auto' ? proj.mnem : mnemSel } : { mnem: mnemSel }, [proj, mnemSel]);
     const { prog, errors, skipped, mnem: mnemUsed, virtual } = useMemo(() => compile(text, ctx), [text, ctx]);
@@ -153,23 +155,23 @@ export function App() {
     const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const fl = Array.from(e.target.files || []); e.target.value = '';
         if (!fl.length) return;
-        if (fl.some(f => f.size > 60e6)) { setFileMsg('الملف كبير زيادة (أقصى حجم 60 MB)'); return; }
-        setBusy(true); setFileMsg('بقرأ الملفات...');
+        if (fl.some(f => f.size > 60e6)) { setFileMsg('File is too large (max 60 MB)'); return; }
+        setBusy(true); setFileMsg('Reading files...');
         try {
             const files = await Promise.all(fl.map(async f => ({ name: f.name, data: new Uint8Array(await f.arrayBuffer()) })));
             const r = await loadFiles(files);
             setRunning(false); mach.I.fill(0); mach.reset();
             if (r.kind === 'program') {
                 setProj(null); setBlk(''); idbDel('project'); setText(r.text); setExId('');
-                setFileMsg('تم تحميل الملف: ' + r.name + ' (' + r.text.split('\n').length + ' سطر)');
+                setFileMsg('File loaded: ' + r.name + ' (' + r.text.split('\n').length + ' lines)');
             } else {
                 const first = r.proj.blocks.find(b => b.kind === 'FUNCTION' || b.kind === 'ORGANIZATION_BLOCK' || b.kind === 'FUNCTION_BLOCK');
                 setProj(r.proj); setBlk(first ? first.name : ''); if (first) { setText(first.text); setExId(''); }
                 const ok = await idbPut('project', { proj: r.proj, blk: first ? first.name : '' });
-                setFileMsg('تم تحميل المشروع: ' + r.proj.blocks.length + ' بلوك، ' + r.proj.symCount + ' رمز، ' + Object.keys(r.proj.dbs).length + ' DB' + (ok ? '' : ' (مش هيتحفظ بعد إغلاق الصفحة)'));
+                setFileMsg('Project loaded: ' + r.proj.blocks.length + ' blocks, ' + r.proj.symCount + ' symbols, ' + Object.keys(r.proj.dbs).length + ' DB' + (ok ? '' : ' (will not be kept after the page closes)'));
             }
             bump();
-        } catch (err: any) { setFileMsg('معرفتش أقرأ الملف: ' + (err && err.message ? err.message : '')); }
+        } catch (err: any) { setFileMsg('Could not read the file: ' + (err && err.message ? err.message : '')); }
         setBusy(false);
     };
     const doReset = () => { setRunning(false); mach.reset(); bump(); };
@@ -183,8 +185,7 @@ export function App() {
     const errLines = new Set(errors.map(e => e.line));
     const lineCount = text.split('\n').length;
     const LH = 22;
-    const ex = EXAMPLES.find(e => e.id === exId);
-
+    
     const byteRow = (area: string, b: number, tappable: boolean) => {
         const arr = area === 'I' ? mach.I : area === 'Q' ? mach.Q : mach.M;
         return <div className="s7-byte" key={area + b}>
@@ -198,83 +199,89 @@ export function App() {
 
     return <div className="s7">
         <div className="s7-top">
-            <div className="s7-title">محاكي S7-300 (STL)<small>Siemens STEP 7 Classic | الإصدار 1.2</small></div>
+            <div className="s7-title">{'S7-300 Simulator (STL)'}<small>{'Siemens STEP 7 Classic | Version 1.3'}</small></div>
             <div className={'s7-mode ' + (running ? 'run' : 'stop')}>{running ? 'RUN' : 'STOP'}</div>
         </div>
 
         <div className="s7-panel">
-            <div className="s7-h">تحكم<span>سكان #{mach.scans} | آخر سكان {mach.lastScanMs.toFixed(0)} ms</span></div>
+            <div className="s7-h">{'Control'}<span>{'Scan #'}{mach.scans} {'| last scan'} {mach.lastScanMs.toFixed(0)} ms</span></div>
             <div className="s7-ctl">
                 {!running
-                    ? <button type="button" className="s7-btn go" disabled={hasErr} onClick={() => { mach.error = ''; setRunning(true); }}><b>▶</b>تشغيل</button>
-                    : <button type="button" className="s7-btn pause" onClick={() => { setRunning(false); bump(); }}><b>⏸</b>إيقاف</button>}
-                <button type="button" className="s7-btn" disabled={hasErr || running} onClick={doStep}><b>⏭</b>خطوة</button>
-                <button type="button" className="s7-btn" disabled={hasErr || running} onClick={() => { mach.runScan(); bump(); }}><b>⟳</b>سكان</button>
-                <button type="button" className="s7-btn" onClick={doReset}><b>↺</b>ريست</button>
+                    ? <button type="button" className="s7-btn go" disabled={hasErr} onClick={() => { mach.error = ''; setRunning(true); }}><b>▶</b>{'Run'}</button>
+                    : <button type="button" className="s7-btn pause" onClick={() => { setRunning(false); bump(); }}><b>⏸</b>{'Stop'}</button>}
+                <button type="button" className="s7-btn" disabled={hasErr || running} onClick={doStep}><b>⏭</b>{'Step'}</button>
+                <button type="button" className="s7-btn" disabled={hasErr || running} onClick={() => { mach.runScan(); bump(); }}><b>⟳</b>{'Scan'}</button>
+                <button type="button" className="s7-btn" onClick={doReset}><b>↺</b>{'Reset'}</button>
             </div>
             <div className="s7-row">
-                <select className="s7-sel" value={speed} onChange={e => setSpeed(+e.target.value)} aria-label="السرعة">
+                <select className="s7-sel" value={speed} onChange={e => setSpeed(+e.target.value)} aria-label={'Speed'}>
                     {SPEEDS.map(s => <option key={s.ms} value={s.ms}>{s.label}</option>)}
                 </select>
             </div>
             {!running && <div className="s7-row">
-                <button type="button" className="s7-chip" onClick={() => adv(100)}>⏩ +0.1 ث</button>
-                <button type="button" className="s7-chip" onClick={() => adv(1000)}>⏩ +1 ث</button>
-                <button type="button" className="s7-chip" onClick={() => adv(5000)}>⏩ +5 ث</button>
+                <button type="button" className="s7-chip" onClick={() => adv(100)}>{'⏩ +0.1 s'}</button>
+                <button type="button" className="s7-chip" onClick={() => adv(1000)}>{'⏩ +1 s'}</button>
+                <button type="button" className="s7-chip" onClick={() => adv(5000)}>{'⏩ +5 s'}</button>
             </div>}
-            <div className="s7-hint">{running ? 'الـ PLC شغال: الوقت بيمشي حقيقي والتايمرات بتعد.' : 'متوقف: الوقت واقف. اضغط "خطوة" لتنفيذ تعليمة واحدة، "سكان" لدورة كاملة، أو ⏩ لتقديم الوقت للتايمرات.'}</div>
+            <div className="s7-hint">{running ? 'The PLC is running: time advances in real time and timers count.' : 'Stopped: time is frozen. Press "Step" to execute one instruction, "Scan" for a full cycle, or ⏩ to advance timer time.'}</div>
             {mach.error && <div className="s7-err">{mach.error}</div>}
         </div>
 
         <div className="s7-panel">
-            <div className="s7-h">أمثلة جاهزة</div>
-            <div className="s7-row" style={{ marginTop: 0, marginBottom: 8 }}>
-                <button type="button" className="s7-btn" style={{ flex: 1, flexDirection: 'row', gap: 8 }} onClick={() => fileRef.current && fileRef.current.click()}><b>📂</b>{busy ? 'استنى...' : 'تحميل برنامج أو مشروع (AWL / ZIP / جدول رموز)'}</button>
+            <div className="s7-h">{'Programs'}</div>
+            <div className="s7-row" style={{ marginTop: 0 }}>
+                <button type="button" className="s7-btn wide" onClick={() => setPick(true)}><b>☰</b>{'Examples'}</button>
+                <button type="button" className="s7-btn wide" onClick={() => fileRef.current && fileRef.current.click()}><b>📂</b>{busy ? 'Wait...' : 'Open file / project'}</button>
                 <input ref={fileRef} type="file" accept=".awl,.txt,.stl,.src,.zip,.dbf,.sdf,.asc,.csv,.sym,text/plain,application/octet-stream,application/zip" multiple style={{ display: 'none' }} onChange={onFile} />
             </div>
-            {fileMsg && <div className="s7-ok" style={{ marginBottom: 8 }}>{fileMsg}</div>}
-            <div className="s7-chips">{EXAMPLES.map(e => <button type="button" key={e.id} className={'s7-chip' + (exId === e.id && text === e.code ? ' on' : '')} onClick={() => loadEx(e.id)}>{e.name}</button>)}</div>
-            {ex && <div className="s7-hint">{ex.hint}</div>}
+            <div className="s7-hint">{'AWL sources, a STEP 7 project ZIP, or a symbol table (SYMLIST.DBF).'}</div>
+            {fileMsg && <div className="s7-ok" style={{ marginTop: 8 }}>{fileMsg}</div>}
+            {pick && <div className="s7-modal" onClick={() => setPick(false)}>
+                <div className="s7-sheet" role="dialog" aria-label="Examples" onClick={e => e.stopPropagation()}>
+                    <div className="s7-h">{'Choose an example'}<button type="button" className="s7-x" aria-label="Close" onClick={() => setPick(false)}>✕</button></div>
+                    {EXAMPLES.map(e => <button type="button" key={e.id} className="s7-ex" onClick={() => { loadEx(e.id); setPick(false); }}><b>{e.name}</b><small>{e.hint}</small></button>)}
+                </div>
+            </div>}
         </div>
 
 
         {proj && <div className="s7-panel">
-            <div className="s7-h">المشروع المحمّل<span>{proj.symCount} رمز | {Object.keys(proj.dbs).length} DB</span></div>
+            <div className="s7-h">{'Loaded project'}<span>{proj.symCount} {'symbols |'} {Object.keys(proj.dbs).length} DB</span></div>
             <div className="s7-hint" style={{ marginTop: 0 }}>{proj.files.join(' | ')}</div>
             {verdicts.map((v: any) => <div className={'s7-tc' + (blk === v.name ? ' q' : '')} key={v.name}>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                    <div className="nm" style={{ direction: 'ltr', textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis' }}>{v.name}<small>{v.kind.replace('_', ' ')} | {v.lines} سطر</small></div>
+                    <div className="nm" style={{ direction: 'ltr', textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis' }}>{v.name}<small>{v.kind.replace('_', ' ')} | {v.lines} {'lines'}</small></div>
                     <div className="s7-hint" style={{ marginTop: 2, color: v.err ? '#ff8a80' : v.skip ? '#ffcc80' : '#81c995' }}>
-                        {v.err ? 'مش بيحمّل: ' + v.err + ' خطأ' : v.skip ? 'بيحمّل (' + v.ins + ' تعليمة) مع ' + v.skip + ' CALL متخطي' : 'بيحمّل (' + v.ins + ' تعليمة)'}{v.virt ? ' | ' + v.virt + ' حقل DB افتراضي' : ''}
+                        {v.err ? 'Cannot load: ' + v.err + ' error(s)' : v.skip ? 'Loads (' + v.ins + ' instructions) with ' + v.skip + ' skipped CALL(s)' : 'Loads (' + v.ins + ' instructions)'}{v.virt ? ' | ' + v.virt + ' virtual DB field(s)' : ''}
                     </div>
                 </div>
-                <button type="button" className="s7-chip" onClick={() => pickBlock(v.name)}>فتح</button>
+                <button type="button" className="s7-chip" onClick={() => pickBlock(v.name)}>{'Open'}</button>
             </div>)}
-            {proj.blocks.filter(b => b.kind === 'DATA_BLOCK').length > 0 && <div className="s7-hint">+ {proj.blocks.filter(b => b.kind === 'DATA_BLOCK').length} بلوك DB (تعريفات بس، بتتحمّل تلقائي)</div>}
+            {proj.blocks.filter(b => b.kind === 'DATA_BLOCK').length > 0 && <div className="s7-hint">+ {proj.blocks.filter(b => b.kind === 'DATA_BLOCK').length} {'DB block (declarations only, loaded automatically)'}</div>}
             {proj.warn.length > 0 && <div className="s7-hint">{proj.warn.slice(0, 3).join(' | ')}</div>}
-            <div className="s7-row"><button type="button" className="s7-chip" onClick={() => { setProj(null); setBlk(''); idbDel('project'); setFileMsg('اتمسح المشروع المحمّل'); }}>مسح المشروع</button></div>
+            <div className="s7-row"><button type="button" className="s7-chip" onClick={() => { setProj(null); setBlk(''); idbDel('project'); setFileMsg('Loaded project cleared'); }}>{'Clear project'}</button></div>
         </div>}
 
         <div className="s7-panel">
-            <div className="s7-h">برامجي المحفوظة<span>على الموبايل ده فقط</span></div>
+            <div className="s7-h">{'My saved programs'}<span>{'On this device only'}</span></div>
             <div className="s7-row" style={{ marginTop: 0 }}>
-                <input className="s7-sel" style={{ flex: 2 }} value={saveName} placeholder="اسم البرنامج" maxLength={40} onChange={e => setSaveName(e.target.value)} aria-label="اسم البرنامج" />
-                <button type="button" className="s7-chip on" onClick={doSave}>💾 حفظ</button>
+                <input className="s7-sel" style={{ flex: 2 }} value={saveName} placeholder={'Program name'} maxLength={40} onChange={e => setSaveName(e.target.value)} aria-label={'Program name'} />
+                <button type="button" className="s7-chip on" onClick={doSave}>{'💾 Save'}</button>
             </div>
             {saveMsg && <div className="s7-ok">{saveMsg}</div>}
             {Object.keys(progs).sort((x, y) => progs[y].ts - progs[x].ts).map(n => <div className="s7-tc" key={n}>
                 <div style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 700 }}>{n}<div className="s7-hint" style={{ marginTop: 2 }}>{new Date(progs[n].ts).toLocaleString('ar-EG')}</div></div>
-                <button type="button" className="s7-chip" onClick={() => doLoad(n)}>فتح</button>
-                <button type="button" className="s7-chip" style={delAsk === n ? { background: '#b3261e', borderColor: '#b3261e' } : undefined} onClick={() => doDel(n)}>{delAsk === n ? 'تأكيد المسح' : 'مسح'}</button>
+                <button type="button" className="s7-chip" onClick={() => doLoad(n)}>{'Open'}</button>
+                <button type="button" className="s7-chip" style={delAsk === n ? { background: '#b3261e', borderColor: '#b3261e' } : undefined} onClick={() => doDel(n)}>{delAsk === n ? 'Confirm delete' : 'Delete'}</button>
             </div>)}
-            {Object.keys(progs).length === 0 && <div className="s7-hint">لسه مفيش برامج محفوظة. اكتب اسم واضغط حفظ.</div>}
+            {Object.keys(progs).length === 0 && <div className="s7-hint">{'No saved programs yet. Type a name and press Save.'}</div>}
         </div>
 
         <div className="s7-panel">
-            <div className="s7-h">البرنامج (STL)<span>{lineCount} سطر{proj && blk ? ' | ' + blk : ''}</span></div>
+            <div className="s7-h">{'Program (STL)'}<span>{lineCount} {'lines'}{proj && blk ? ' | ' + blk : ''}</span></div>
             <div className="s7-row" style={{ marginTop: 0, marginBottom: 8 }}>
-                <select className="s7-sel" value={mnemSel} onChange={e => setMnemSel(e.target.value as any)} aria-label="مجموعة الرموز">
-                    <option value="auto">رموز: تلقائي ({mnemUsed === 'en' ? 'English' : 'Deutsch'})</option>
+                <select className="s7-sel" value={mnemSel} onChange={e => setMnemSel(e.target.value as any)} aria-label={'Mnemonics'}>
+                    <option value="auto">{'Mnemonics: auto ('}{mnemUsed === 'en' ? 'English' : 'Deutsch'})</option>
                     <option value="en">English (SD=on-delay, SE=ext.pulse)</option>
                     <option value="de">Deutsch (SE=on-delay, SV=ext.pulse)</option>
                 </select>
@@ -285,23 +292,23 @@ export function App() {
                 <div className="s7-gut"><div style={{ transform: 'translateY(' + (8 - scrollTop) + 'px)' }}>
                     {Array.from({ length: lineCount }, (_, i) => <div key={i} className={errLines.has(i + 1) ? 'err' : curLine === i + 1 ? 'cur' : ''}>{i + 1}</div>)}
                 </div></div>
-                <textarea className="s7-ta" value={text} spellCheck={false} autoCapitalize="none" autoCorrect="off" wrap="off" dir="ltr" aria-label="محرر STL"
+                <textarea className="s7-ta" value={text} spellCheck={false} autoCapitalize="none" autoCorrect="off" wrap="off" dir="ltr" aria-label={'STL editor'}
                     onChange={e => { setText(e.target.value); setExId(''); }} onScroll={e => setScrollTop((e.target as HTMLTextAreaElement).scrollTop)} />
             </div>
             {hasErr
-                ? <div className="s7-errs">{errors.slice().sort((a, b) => a.line - b.line).map((e, i) => <div className="s7-err" key={i}><b>سطر {e.line}</b> : {e.msg}</div>)}</div>
-                : <div className="s7-ok">البرنامج سليم: {prog.ins.length} تعليمة. بيتحمّل تلقائياً.{skipped.length > 0 ? ' (فيه ' + skipped.length + ' استدعاء CALL متخطي)' : ''}</div>}
-            {!hasErr && skipped.length > 0 && <details className="s7-info"><summary>استدعاءات CALL المتخطية ({skipped.length}): الكود بتاعها مش موجود كنص</summary>
-                <div className="s7-skip">{skipped.map((k, i) => <div key={i}><b>سطر {k.line}</b> : {k.callee}<small> (شبكة {k.net}{k.title ? ': ' + k.title : ''})</small></div>)}</div>
-                <div className="s7-hint">مخرجات الدوال دي بتفضل على قيمتها (صفر) لأن المحاكي مش شايف الكود بتاعها.</div></details>}
-            {!hasErr && virtual.length > 0 && <details className="s7-info"><summary>حقول DB من غير تعريف ({virtual.length}): اتحط لها مكان افتراضي</summary>
-                <div className="s7-skip">{virtual.map((v, i) => <div key={i}><b>DB{v.db}</b>.{v.name}<small> ({v.type}، أول استخدام سطر {v.first})</small></div>)}</div>
-                <div className="s7-hint">تعريف الـ DB ده مش في الملفات. المحاكي اختار نوع وعنوان للحقل من طريقة استخدامه، فالعناوين المطلقة مش مضمونة.</div></details>}
-            {!hasErr && <div className="s7-next">{running ? 'RUN ...' : 'التعليمة الجاية: ' + (nextIns ? 'سطر ' + nextIns.line + '   ' + nextIns.text : '—')}</div>}
+                ? <div className="s7-errs">{errors.slice().sort((a, b) => a.line - b.line).map((e, i) => <div className="s7-err" key={i}><b>{'line'} {e.line}</b> : {e.msg}</div>)}</div>
+                : <div className="s7-ok">{'Program is valid:'} {prog.ins.length} {'instructions. It reloads automatically.'}{skipped.length > 0 ? ' (' + skipped.length + ' CALL(s) skipped)' : ''}</div>}
+            {!hasErr && skipped.length > 0 && <details className="s7-info"><summary>{'Skipped CALLs ('}{skipped.length}{'): their code is not available as source'}</summary>
+                <div className="s7-skip">{skipped.map((k, i) => <div key={i}><b>{'line'} {k.line}</b> : {k.callee}<small> {'(network'} {k.net}{k.title ? ': ' + k.title : ''})</small></div>)}</div>
+                <div className="s7-hint">{'The outputs of these functions stay at their current value (zero) because the simulator cannot see their code.'}</div></details>}
+            {!hasErr && virtual.length > 0 && <details className="s7-info"><summary>{'DB fields without declaration ('}{virtual.length}{'): a virtual location was assigned'}</summary>
+                <div className="s7-skip">{virtual.map((v, i) => <div key={i}><b>DB{v.db}</b>.{v.name}<small> ({v.type}{', first used at line'} {v.first})</small></div>)}</div>
+                <div className="s7-hint">{'This DB declaration is not in the loaded files. The simulator chose a type and address for each field from how it is used, so absolute addresses are not guaranteed.'}</div></details>}
+            {!hasErr && <div className="s7-next">{running ? 'RUN ...' : 'Next instruction: ' + (nextIns ? 'line ' + nextIns.line + '   ' + nextIns.text : '—')}</div>}
         </div>
 
         <div className="s7-panel">
-            <div className="s7-h">حالة المعالج (CPU)</div>
+            <div className="s7-h">{'CPU state'}</div>
             <div className="s7-st">
                 <div className="s7-cell"><label>ACCU1</label><code>{hex(mach.acc1)}</code> <small>(int {s16(mach.acc1)} | dint {mach.acc1 | 0} | real {fmtR(mach.acc1)})</small></div>
                 <div className="s7-cell"><label>ACCU2</label><code>{hex(mach.acc2)}</code> <small>(int {s16(mach.acc2)} | dint {mach.acc2 | 0} | real {fmtR(mach.acc2)})</small></div>
@@ -315,8 +322,8 @@ export function App() {
         </div>
 
         {used.watchList.length > 24 && <div className="s7-panel">
-            <div className="s7-h">العناوين المستخدمة<span>{used.watchList.length} عنوان</span></div>
-            <input className="s7-sel" style={{ width: '100%', boxSizing: 'border-box', marginBottom: 6 }} dir="ltr" value={wfilter} placeholder="بحث بالاسم أو العنوان" onChange={e => { setWfilter(e.target.value); setWmax(60); }} aria-label="بحث" />
+            <div className="s7-h">{'Used addresses'}<span>{used.watchList.length} {'address'}</span></div>
+            <input className="s7-sel" style={{ width: '100%', boxSizing: 'border-box', marginBottom: 6 }} dir="ltr" value={wfilter} placeholder={'Search by name or title'} onChange={e => { setWfilter(e.target.value); setWmax(60); }} aria-label={'Search'} />
             {(() => {
                 const f = wfilter.trim().toLowerCase();
                 const list = used.watchList.filter((w: any) => !f || w.name.toLowerCase().includes(f) || w.addr.toLowerCase().includes(f));
@@ -332,25 +339,25 @@ export function App() {
                                 const v = rdN(w.a); const bits = nB(w.a) * 8; const sv = bits === 8 ? v : bits === 16 ? s16(v) : v | 0;
                                 ctl = <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><NumCell value={String(sv)} onCommit={t => commitNum(w.a, t)} />{bits === 32 && <small style={{ color: '#8b98a9' }}>R {fmtR(v)}</small>}</span>;
                             }
-                        } catch { ctl = <small style={{ color: '#8b98a9' }}>DB مش متاح</small>; }
+                        } catch { ctl = <small style={{ color: '#8b98a9' }}>{'DB not available'}</small>; }
                         return <div className="s7-wrow" key={w.addr + i}><div className="s7-wn"><b>{w.name || w.addr}</b>{w.name && <small>{w.addr}</small>}</div>{ctl}</div>;
                     })}
-                    {list.length > wmax && <div className="s7-row"><button type="button" className="s7-chip" onClick={() => setWmax(wmax + 100)}>عرض المزيد ({list.length - wmax})</button></div>}
-                    {list.length === 0 && <div className="s7-hint">مفيش نتايج</div>}
+                    {list.length > wmax && <div className="s7-row"><button type="button" className="s7-chip" onClick={() => setWmax(wmax + 100)}>{'Show more ('}{list.length - wmax})</button></div>}
+                    {list.length === 0 && <div className="s7-hint">{'No results'}</div>}
                 </>;
             })()}
-            <div className="s7-hint">اضغط على البت للتبديل (الدخل I والميركر M والـ DB). الأرقام: اكتب القيمة واضغط Enter (رقم عشري للـ REAL في الـ DD). الخرج Q للعرض بس.</div>
+            <div className="s7-hint">{'Click a bit to toggle it (inputs I, markers M and DB). Numbers: type the value and press Enter (decimal for REAL in DD). Output Q is display only.'}</div>
         </div>}
         {used.watchList.length <= 24 && <div className="s7-panel">
-            <div className="s7-h">الدخل I (اضغط للتبديل)<span>بيتقرأ في أول كل سكان (PII)</span></div>
+            <div className="s7-h">{'Inputs I (click to toggle)'}<span>{'Read at the start of every scan (PII)'}</span></div>
             {used.I.map(b => byteRow('I', b, true))}
         </div>}
         {used.watchList.length <= 24 && <div className="s7-panel">
-            <div className="s7-h">الخرج Q<span>عرض فقط</span></div>
+            <div className="s7-h">{'Outputs Q'}<span>{'Display only'}</span></div>
             {used.Q.map(b => byteRow('Q', b, false))}
         </div>}
         {used.watchList.length <= 24 && <div className="s7-panel">
-            <div className="s7-h">الميركر M (اضغط للإجبار)</div>
+            <div className="s7-h">{'Markers M (click to force)'}</div>
             {used.M.map(b => byteRow('M', b, true))}
             {used.watch.filter((w: any) => w.area !== 'DB').length > 0 && <div className="s7-watch">{used.watch.filter((w: any) => w.area !== 'DB').map((a: any, i: number) => {
                 const v = mach.readN(a); const bits = a.size === 'B' ? 8 : a.size === 'W' ? 16 : 32;
@@ -361,7 +368,7 @@ export function App() {
 
 
         {used.watchList.length <= 24 && (used.dbBits.length > 0 || used.watch.some((w: any) => w.area === 'DB')) && <div className="s7-panel">
-            <div className="s7-h">الداتا بلوك DB<span>اضغط على البت للإجبار</span></div>
+            <div className="s7-h">{'Data blocks DB'}<span>{'Click a bit to force it'}</span></div>
             {used.dbBits.map(d => d.bytes.map(b => {
                 const arr = mach.dbArr(d.n);
                 return <div className="s7-byte" key={'db' + d.n + '_' + b}>
@@ -377,7 +384,7 @@ export function App() {
         </div>}
 
         {(used.timers.length > 0 || used.counters.length > 0) && <div className="s7-panel">
-            <div className="s7-h">التايمرات والعدادات</div>
+            <div className="s7-h">{'Timers and counters'}</div>
             {used.timers.map(n => {
                 const t = mach.timers[n]; const q = t ? mach.timerQ(t) : false;
                 const pct = t && t.pre > 0 ? Math.round(100 * (1 - t.rem / t.pre)) : 0;
@@ -393,7 +400,7 @@ export function App() {
             {used.counters.map(n => {
                 const c = mach.counters[n]; const v = c ? c.val : 0;
                 return <div key={'c' + n} className={'s7-tc' + (v ? ' q' : '')}>
-                    <div className="nm">C{n}<small>عداد</small></div>
+                    <div className="nm">C{n}<small>{'Counter'}</small></div>
                     <div className="vl" style={{ fontSize: 22 }}>{v}</div>
                     <Led on={v !== 0} label="Q" kind="q" />
                 </div>;
@@ -401,21 +408,21 @@ export function App() {
         </div>}
 
         <div className="s7-panel s7-info"><details>
-            <summary>إيه اللي مدعوم في الإصدار 1.2؟</summary>
-            <p><b>منطق بت:</b> A, AN, O, ON, X, XN, الأقواس A( O( ) ، NOT, SET, CLR, = , S, R, FP, FN. الـ AND بتتنفذ قبل الـ OR زي STEP 7 بالظبط، وO لوحدها بتفصل المجموعات.</p>
-            <p><b>تحميل ونقل:</b> L و T لـ IB/IW/ID, QB/QW/QD, MB/MW/MD وثوابت (5، W#16#FF، S5T#2S، C#5، T#...). ACCU1/ACCU2 بالترتيب الحقيقي (Big-Endian).</p>
-            <p><b>حسابات ومقارنات:</b> ==, &lt;&gt;, &gt;, &lt;, &gt;=, &lt;= بنوع I وD وR، +I -I *I /I، +D -D *D /D MOD، +R -R *R /R، + رقم، INC, DEC.</p>
-            <p><b>REAL وتحويلات:</b> ثوابت زي 3.14 وL 1.5E2، ITD, DTR, RND, RND+, RND-, TRUNC, NEGI/NEGD/NEGR, ABS, SQRT, SQR, EXP, LN, SIN, COS, TAN, ASIN, ACOS, ATAN, INVI/INVD, CAW/CAD, TAK.</p>
-            <p><b>إزاحة ودوران ومنطق كلمات:</b> SLW SRW SLD SRD SSI SSD RLD RRD (بعدد ثابت أو من ACCU2)، AW OW XOW AD OD XOD.</p>
-            <p><b>قفز:</b> SPA, SPB, SPBN, BE, BEB مع Labels (4 حروف حد أقصى).</p>
-            <p><b>تايمرات S5:</b> SE (S_ODT)، SI (S_PULSE)، SS (S_ODTS)، SV (S_PEXT)، SA (S_OFFDT)، R, FR، وقيم S5T# بأساس زمني حقيقي.</p>
-            <p><b>عدادات:</b> ZV, ZR, S, R مع قيمة C#.</p>
-            <p><b>داتا بلوك:</b> OPN DB/DI، وDBX/DBB/DBW/DBD (مثال: DBW2 أو DB1.DBX0.3) ومعاها A, =, S, R, L, T. كل DB حجمه 512 بايت (أو حسب تعريفه لو متحمل).</p>
-            <p><b>جديد 1.2 (مشاريع حقيقية):</b> تحميل ملف ZIP لمشروع STEP 7 كامل أو أكتر من ملف AWL مع جدول الرموز (SYMLIST.DBF). العناوين الرمزية "اسم" و"DB".حقل، تعريفات الـ DB (STRUCT) بترتيب STEP 7 الحقيقي، المتغيرات المؤقتة #اسم وL 12.0 (VAR_TEMP)، BLD وNOP، JNB/JBI/JNBI وSAVE، عناوين I/Q لحد 1023 وM لحد 4095 وDB لحد 65535، PIW/PQW، واختيار مجموعة الرموز English أو Deutsch.</p>
-            <p><b>التايمرات:</b> English: SP=pulse، SE=extended pulse، SD=on-delay، SS=retentive، SF=off-delay. Deutsch: SI، SV، SE=on-delay، SS، SA. الاختيار تلقائي من الكود ومعاه اختيار يدوي.</p>
-            <p><b>اتأجل:</b> CALL لـ FC/FB (بيتخطى ويتعرض في قائمة)، الـ OV/OS، الـ indirect addressing [AR1,P#..]، UDT.</p>
-            <p>تقبل المسميات الألماني والإنجليزي: U/UN = A/AN, E/A = I/Q, ZV/CU, ZR/CD, SPB/JC.</p>
-            <div className="s7-warn">دي محاكاة لسلوك STL على S7-300 لأغراض التعلم. مش بديل لـ PLCSIM والاختبار على الجهاز الحقيقي.</div>
+            <summary>{'What is supported in version 1.3?'}</summary>
+            <p><b>{'Bit logic:'}</b> {'A, AN, O, ON, X, XN, brackets A( O( ), NOT, SET, CLR, =, S, R, FP, FN. AND is evaluated before OR exactly as in STEP 7, and a lone O separates the groups.'}</p>
+            <p><b>{'Load and transfer:'}</b> {'L and T for IB/IW/ID, QB/QW/QD, MB/MW/MD and constants (5, W#16#FF, S5T#2S, C#5, T#...). ACCU1/ACCU2 in true order (big-endian).'}</p>
+            <p><b>{'Arithmetic and comparison:'}</b> {'==, <>, >, <, >=, <= for types I, D and R, +I -I *I /I, +D -D *D /D MOD, +R -R *R /R, + constant, INC, DEC.'}</p>
+            <p><b>{'REAL and conversions:'}</b> {'Constants such as 3.14 and L 1.5E2, ITD, DTR, RND, RND+, RND-, TRUNC, NEGI/NEGD/NEGR, ABS, SQRT, SQR, EXP, LN, SIN, COS, TAN, ASIN, ACOS, ATAN, INVI/INVD, CAW/CAD, TAK.'}</p>
+            <p><b>{'Shift, rotate and word logic:'}</b> {'SLW SRW SLD SRD SSI SSD RLD RRD (fixed count or from ACCU2), AW OW XOW AD OD XOD.'}</p>
+            <p><b>{'Jumps:'}</b> {'JU, JC, JCN, BE, BEB with labels (max 4 characters).'}</p>
+            <p><b>{'S5 timers:'}</b> {'SD (S_ODT), SP (S_PULSE), SS (S_ODTS), SE (S_PEXT), SF (S_OFFDT), R, FR, and S5T# values with a real time base.'}</p>
+            <p><b>{'Counters:'}</b> {'CU, CD, S, R with a C# value.'}</p>
+            <p><b>{'Data blocks:'}</b> {'OPN DB/DI, and DBX/DBB/DBW/DBD (e.g. DBW2 or DB1.DBX0.3) with A, =, S, R, L, T. Each DB is 512 bytes (or its declared size when loaded).'}</p>
+            <p><b>{'New in 1.2 (real projects):'}</b> {'Load a full STEP 7 project ZIP or several AWL files with the symbol table (SYMLIST.DBF). Symbolic addresses "name" and "DB".field, DB declarations (STRUCT) in true STEP 7 layout, temp variables #name and L 12.0 (VAR_TEMP), BLD and NOP, JNB/JBI/JNBI and SAVE, I/Q addresses up to 1023, M up to 4095, DB up to 65535, PIW/PQW, and a choice of English or Deutsch mnemonics.'}</p>
+            <p><b>{'Timers:'}</b> {'English: SP=pulse, SE=extended pulse, SD=on-delay, SS=retentive, SF=off-delay. Deutsch: SI, SV, SE=on-delay, SS, SA. Chosen automatically from the code, with a manual override.'}</p>
+            <p><b>{'Not yet supported:'}</b> {'CALL to FC/FB (skipped and listed), OV/OS, indirect addressing [AR1,P#..], UDT.'}</p>
+            <p>{'German and English mnemonics are both accepted: U/UN = A/AN, E/A = I/Q, ZV/CU, ZR/CD, SPB/JC.'}</p>
+            <div className="s7-warn">{'This simulates STL behavior on an S7-300 for learning. It is not a replacement for PLCSIM or testing on real hardware.'}</div>
         </details></div>
     </div>;
 }

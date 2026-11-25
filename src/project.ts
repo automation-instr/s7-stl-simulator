@@ -17,7 +17,7 @@ export function decodeText(buf: Uint8Array): string {
 export async function unzip(buf: Uint8Array, want: (name: string) => boolean): Promise<{ name: string; data: Uint8Array }[]> {
     const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
     let e = -1; for (let i = buf.length - 22; i >= Math.max(0, buf.length - 70000); i--) if (dv.getUint32(i, true) === 0x06054b50) { e = i; break; }
-    if (e < 0) throw new Error('مش ملف ZIP سليم');
+    if (e < 0) throw new Error('Not a valid ZIP file');
     const n = dv.getUint16(e + 10, true); let p = dv.getUint32(e + 16, true);
     const out: { name: string; data: Uint8Array }[] = [];
     for (let k = 0; k < n; k++) {
@@ -56,7 +56,7 @@ export async function loadFiles(files: { name: string; data: Uint8Array }[]): Pr
             if (!/\.dbf$/i.test(f.name) && all.some(x => /symlist\.dbf$/i.test(x.name))) continue; // a real symbol table is present
             try {
                 const s = /\.dbf$/i.test(f.name) ? parseSymList(f.data) : parseSymText(decodeText(f.data));
-                const c = Object.keys(s).length; if (c) { Object.assign(symbols, s); used.push('جدول رموز: ' + f.name.split('/').pop() + ' (' + c + ' رمز)'); }
+                const c = Object.keys(s).length; if (c) { Object.assign(symbols, s); used.push('Symbol table: ' + f.name.split('/').pop() + ' (' + c + ' symbols)'); }
             } catch (e: any) { warn.push(f.name + ': ' + e.message); }
         } else if (isSrc(f.name)) {
             if (f.data.indexOf(0) >= 0 && !(f.data[0] === 0xff || f.data[0] === 0xfe)) { nBin++; continue; }
@@ -64,11 +64,11 @@ export async function loadFiles(files: { name: string; data: Uint8Array }[]): Pr
             const b = splitBlocks(t); b.forEach(x => blocks.push(x)); if (b.length) nSrc++;
         }
     }
-    if (nSrc) used.unshift(nSrc + ' ملف AWL (' + blocks.length + ' بلوك)');
-    if (nBin) warn.push(nBin + ' ملف نصي اتخطى لأنه ثنائي');
+    if (nSrc) used.unshift(nSrc + ' AWL files (' + blocks.length + ' blocks)');
+    if (nBin) warn.push(nBin + ' file(s) skipped because they are binary');
     const nSym = Object.keys(symbols).length;
     if (blocks.length === 0 && nSym === 0) {
-        if (!single) throw new Error('مفيش ملف AWL أو جدول رموز في اللي اخترته');
+        if (!single) throw new Error('No AWL file or symbol table found in the selection');
         return { kind: 'program', text: single, name: files[0].name };
     }
     if (blocks.length === 0 && nSym > 0) {

@@ -81,14 +81,14 @@ function parseDbAddr(s: string, mode: 'bit' | 'num'): any {
     return mode === 'num' ? { area: 'DB', db, reg, byte, size: k } : 'needbit';
 }
 const DBERR: Record<string, string> = {
-    baddi: 'DI مينفعش يتكتب معاه رقم DB. استخدم DIX0.0 بعد OPN DI',
-    dbrange: 'رقم الـ DB لازم يكون من 1 لـ 65535',
-    dbxbit: 'DBX محتاج رقم بت (مثال: DBX0.0)',
-    bit: 'رقم البت لازم يكون من 0 لـ 7',
-    dbbyte: 'العنوان برا حجم الـ DB (حسب تعريفه، أو 512 بايت لو مفيش تعريف)',
-    needsize: 'DBX للبت بس. للقراءة والكتابة استخدم DBB/DBW/DBD (مثال: L DBW0)',
-    needbit: 'العنوان ده مش بت. للبت استخدم DBX، وللقراءة استخدم L DBW0',
-    dbbitnotallowed: 'DBB/DBW/DBD من غير رقم بت',
+    baddi: 'DI cannot take a DB number. Use DIX0.0 after OPN DI',
+    dbrange: 'DB number must be 1 to 65535',
+    dbxbit: 'DBX needs a bit number (e.g. DBX0.0)',
+    bit: 'Bit number must be 0 to 7',
+    dbbyte: 'Address is outside the DB size (from its declaration, or 512 bytes if none)',
+    needsize: 'DBX is for bits only. To load or transfer use DBB/DBW/DBD (e.g. L DBW0)',
+    needbit: 'This address is not a bit. Use DBX for bits, or L DBW0 to load',
+    dbbitnotallowed: 'DBB/DBW/DBD take no bit number',
 };
 
 function parseConst(s: string): { v: number; kind: string } | string {
@@ -148,7 +148,7 @@ export function layoutDecls(lines: string[]): DbLayout & { errors: string[] } {
         if (ty === 'BOOL') { isBool = true; sz = 0; }
         else if (sm) { sz = +sm[1] + 2; ty = 'STRING'; }
         else if (TYPE_SZ[ty]) sz = TYPE_SZ[ty];
-        else { errors.push('نوع مش مدعوم: ' + ty + ' (' + name + ')'); continue; }
+        else { errors.push('Unsupported type: ' + ty + ' (' + name + ')'); continue; }
         if (isBool && n === 1) {
             fields[name] = { off: byte, bit, type: 'BOOL' };
             if (++bit === 8) { bit = 0; byte++; }
@@ -187,7 +187,7 @@ export function dbLayouts(blocks: Block[]): { dbs: Record<number, DbLayout>; war
     for (const b of blocks) {
         if (b.kind !== 'DATA_BLOCK' || !b.db) continue;
         const ls = b.text.split('\n'); const a = ls.findIndex(l => /^\s*STRUCT\b/i.test(l)); let z = -1; for (let i = ls.length - 1; i > a && a >= 0; i--) if (/^\s*END_STRUCT\b/i.test(ls[i])) { z = i; break; }
-        if (a < 0 || z < 0) { warn.push('DB' + b.db + ': مفيش STRUCT'); continue; }
+        if (a < 0 || z < 0) { warn.push('DB' + b.db + ': no STRUCT found'); continue; }
         const r = layoutDecls(ls.slice(a + 1, z));
         dbs[b.db] = { size: r.size, fields: r.fields }; r.errors.forEach(e => warn.push('DB' + b.db + ': ' + e));
     }
@@ -203,7 +203,7 @@ export function parseSymList(buf: Uint8Array): Record<string, string> {
         const len = buf[p + 16]; flds.push({ name: nm, len, off }); off += len;
     }
     const fS = flds.find(f => f.name === '_SKZ'), fO = flds.find(f => f.name === '_OPIEC');
-    if (!fS || !fO) throw new Error('الملف ده مش جدول رموز STEP 7 (مفيش _SKZ/_OPIEC)');
+    if (!fS || !fO) throw new Error('This is not a STEP 7 symbol table (no _SKZ/_OPIEC fields)');
     const rd = (r: number, f: { len: number; off: number }) => { let s = ''; for (let i = 0; i < f.len; i++) { const c = buf[r + f.off + i]; if (c) s += String.fromCharCode(c); } return s.trim(); };
     const out: Record<string, string> = {};
     for (let i = 0; i < nrec; i++) {
@@ -271,20 +271,20 @@ export function compile(src: string, ctx: Ctx = {}): { prog: Program; errors: Er
     const resolve = (s: string, ln: number): string => s
         .replace(/"([^"]+)"(?:\.([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*))?/g, (m0, name: string, field?: string) => {
             const a = syms[name.toUpperCase()];
-            if (a === undefined) { E(ln, 'الرمز "' + name + '" مش موجود في جدول الرموز. حمّل جدول الرموز (SYMLIST.DBF)'); return m0; }
+            if (a === undefined) { E(ln, 'Symbol "' + name + '" is not in the symbol table. Load the symbol table (SYMLIST.DBF)'); return m0; }
             const norm = a.replace(/\s+/g, '').toUpperCase();
             if (!field) return norm;
-            const dm = /^DB(\d+)$/.exec(norm); if (!dm) { E(ln, 'الرمز "' + name + '" (' + a + ') مش DB'); return m0; }
+            const dm = /^DB(\d+)$/.exec(norm); if (!dm) { E(ln, 'Symbol "' + name + '" (' + a + ') is not a DB'); return m0; }
             const dn = +dm[1], lay = dbs[dn];
-            if ((!lay || vdbNums.has(dn)) && ctx.virtualDb === false) { E(ln, 'الرمز "' + name + '" (' + a + ') مالوش تعريف DB متحمل. حمّل ملف الـ DB (AWL)'); return m0; }
+            if ((!lay || vdbNums.has(dn)) && ctx.virtualDb === false) { E(ln, 'Symbol "' + name + '" (' + a + ') has no DB declaration loaded. Load the DB source (AWL)'); return m0; }
             let f = lay ? lay.fields[field.toUpperCase()] : undefined;
             if (!f && (!lay || vdbNums.has(dn))) f = virtualField(dn, field, ln);
-            if (!f) { E(ln, 'الحقل ' + field + ' مش موجود في ' + a.replace(/\s+/g, '')); return m0; }
+            if (!f) { E(ln, 'Field ' + field + ' not found in ' + a.replace(/\s+/g, '')); return m0; }
             return dbOperand(+dm[1], f);
         })
         .replace(/(^|[^\w#])#([A-Za-z_]\w*)/g, (m0, pre: string, name: string) => {
             const f = tempLay.fields[name.toUpperCase()];
-            if (!f) { E(ln, 'المتغير المؤقت #' + name + ' مش معرّف في VAR_TEMP'); return m0; }
+            if (!f) { E(ln, 'Temp variable #' + name + ' is not declared in VAR_TEMP'); return m0; }
             return pre + (f.type === 'BOOL' ? 'L' + f.off + '.' + f.bit : 'L' + (FLET[f.type] || 'D') + f.off);
         });
 
@@ -304,8 +304,8 @@ export function compile(src: string, ctx: Ctx = {}): { prog: Program; errors: Er
         const lm = /^([A-Za-z_][A-Za-z0-9_]*)\s*:(?!=)\s*(.*)$/.exec(t);
         if (lm) {
             label = lm[1].toUpperCase();
-            if (label.length > 4) E(ln, 'اسم الـ Label "' + lm[1] + '" طويل. أقصى حاجة 4 حروف (مثال: M001:)');
-            else if (labels[label] !== undefined) E(ln, 'الـ Label "' + label + '" متكرر');
+            if (label.length > 4) E(ln, 'Label "' + lm[1] + '" is too long. Max 4 characters (e.g. M001:)');
+            else if (labels[label] !== undefined) E(ln, 'Label "' + label + '" is duplicated');
             labels[label] = ins.length;
             t = lm[2].trim();
             if (!t) return;
@@ -319,62 +319,62 @@ export function compile(src: string, ctx: Ctx = {}): { prog: Program; errors: Er
             return;
         }
         const mm = /^(==[IDR]|<>[IDR]|>=[IDR]|<=[IDR]|>[IDR]|<[IDR]|[+\-*\/][IDR]|RND[+\-]|=|\+|\)|[A-Za-z_][A-Za-z0-9_]*)\s*(.*)$/.exec(t);
-        if (!mm) { E(ln, 'مش فاهم السطر ده: "' + t + '"'); return; }
+        if (!mm) { E(ln, 'Cannot parse this line: "' + t + '"'); return; }
         let op = mm[1].toUpperCase();
         const nErr = errors.length;
         let rest = resolve(mm[2], ln).replace(/\s+/g, '');
         if (errors.length > nErr) return;
         const text = t;
         if (mnem === 'en' && EN_TIMER[op]) op = EN_TIMER[op];
-        else if (mnem === 'de' && (op === 'SD' || op === 'SF' || op === 'SP')) { E(ln, 'التعليمة ' + op + ' من الرموز الإنجليزي. غيّر مجموعة الرموز لـ English'); return; }
+        else if (mnem === 'de' && (op === 'SD' || op === 'SF' || op === 'SP')) { E(ln, 'Instruction ' + op + ' belongs to the English mnemonic set. Switch the mnemonic set to English'); return; }
         if (ALIAS[op]) op = ALIAS[op];
         const push = (a?: any) => ins.push({ op, a, line: ln, text, label });
 
         if (BITOPS.includes(op) && rest.startsWith('(')) {
-            if (rest !== '(') { E(ln, 'بعد "' + op + '(" مينفعش يبقى فيه حاجة تانية في نفس السطر'); return; }
+            if (rest !== '(') { E(ln, 'After "' + op + '(" nothing else may follow on the same line'); return; }
             depth++; depthLine = ln; op = op + '('; push(); return;
         }
         if (op === ')') {
-            if (depth === 0) { E(ln, 'قوس قفل ")" من غير قوس فتح'); return; }
+            if (depth === 0) { E(ln, 'Closing ")" without an opening parenthesis'); return; }
             depth--; push(); return;
         }
         if (['SET', 'CLR', 'NOT', 'BE', 'SPA_', 'SAVE', 'BLD'].includes(op) || (op === 'NOP')) {
             if (op === 'NOP' || op === 'BLD') { push(); return; }
-            if (rest) { E(ln, 'التعليمة ' + op + ' من غير عنوان'); return; }
+            if (rest) { E(ln, 'Instruction ' + op + ' takes no operand'); return; }
             push(); return;
         }
         if (op === 'O' && !rest) { push(); return; }
         if (BITOPS.includes(op) || op === '=' || op === 'S' || op === 'R' || op === 'FP' || op === 'FN') {
-            if (!rest) { E(ln, 'التعليمة ' + op + ' محتاجة عنوان (مثال: ' + op + ' I0.0)'); return; }
+            if (!rest) { E(ln, 'Instruction ' + op + ' needs an address (e.g. ' + op + ' I0.0)'); return; }
             const tc = /^([TC])(\d+)$/i.exec(rest);
             if (tc) {
                 const kind = tc[1].toUpperCase(), n = +tc[2];
-                if (n > 255) { E(ln, 'رقم ' + (kind === 'T' ? 'التايمر' : 'العداد') + ' لازم يكون من 0 لـ 255'); return; }
+                if (n > 255) { E(ln, '' + (kind === 'T' ? 'timer' : 'counter') + ' number must be 0 to 255'); return; }
                 if (BITOPS.includes(op)) { push({ area: kind, n }); return; }
                 if (op === 'R') { push({ area: kind, n }); return; }
                 if (op === 'S' && kind === 'C') { push({ area: kind, n }); return; }
-                E(ln, 'التعليمة ' + op + ' مينفعش تتعامل مع ' + (kind === 'T' ? 'التايمر' : 'العداد') + ' كده. استخدم ' + (kind === 'T' ? 'SE / SI / SS / SV / SA أو R' : 'ZV / ZR / S / R')); return;
+                E(ln, 'Instruction ' + op + ' cannot be used on a ' + (kind === 'T' ? 'timer' : 'counter') + '. Use ' + (kind === 'T' ? 'SE / SI / SS / SV / SA or R' : 'ZV / ZR / S / R')); return;
             }
             const da = parseDbAddr(rest, 'bit');
             if (da) { if (typeof da === 'string') { E(ln, DBERR[da]); return; } push(da); return; }
             const a = parseBitAddr(rest);
             if (typeof a === 'string') {
-                E(ln, a === 'bit' ? 'رقم البت لازم يكون من 0 لـ 7 في "' + rest + '"' : a === 'range' ? 'العنوان "' + rest + '" برا النطاق' : 'العنوان "' + rest + '" غلط. الشكل الصحيح: I0.0 أو Q0.1 أو M2.3');
+                E(ln, a === 'bit' ? 'Bit number must be 0 to 7 in "' + rest + '"' : a === 'range' ? 'Address "' + rest + '" is out of range' : 'Address "' + rest + '" is invalid. Valid forms: I0.0, Q0.1, M2.3');
                 return;
             }
-            if ((op === 'FP' || op === 'FN') && a.area === 'I') { E(ln, op + ' محتاجة Merker أو DB كذاكرة للحافة (مش دخل)'); return; }
+            if ((op === 'FP' || op === 'FN') && a.area === 'I') { E(ln, op + ' needs a Merker or DB bit as edge memory (not an input)'); return; }
             push(a); return;
         }
         if (TIMER_OPS.includes(op) || op === 'ZV' || op === 'ZR' || op === 'FR') {
             const tc = /^([TC])(\d+)$/i.exec(rest);
             const want = TIMER_OPS.includes(op) ? 'T' : 'C';
-            if (op === 'FR') { if (!tc) { E(ln, 'FR محتاجة T أو C مثال: FR T1'); return; } push({ area: tc[1].toUpperCase(), n: +tc[2] }); return; }
-            if (!tc || tc[1].toUpperCase() !== want) { E(ln, 'التعليمة ' + op + ' محتاجة ' + (want === 'T' ? 'تايمر مثال: ' + op + ' T1' : 'عداد مثال: ' + op + ' C1')); return; }
-            if (+tc[2] > 255) { E(ln, 'الرقم لازم يكون من 0 لـ 255'); return; }
+            if (op === 'FR') { if (!tc) { E(ln, 'FR needs a T or C, e.g. FR T1'); return; } push({ area: tc[1].toUpperCase(), n: +tc[2] }); return; }
+            if (!tc || tc[1].toUpperCase() !== want) { E(ln, 'Instruction ' + op + ' needs ' + (want === 'T' ? 'a timer, e.g. ' + op + ' T1' : 'a counter, e.g. ' + op + ' C1')); return; }
+            if (+tc[2] > 255) { E(ln, 'Number must be 0 to 255'); return; }
             push({ area: want, n: +tc[2] }); return;
         }
         if (op === 'L' || op === 'T') {
-            if (!rest) { E(ln, 'التعليمة ' + op + ' محتاجة عنوان' + (op === 'L' ? ' أو رقم (مثال: L 5 أو L MW10)' : ' (مثال: T MW10)')); return; }
+            if (!rest) { E(ln, 'Instruction ' + op + ' needs an address' + (op === 'L' ? ' or a constant (e.g. L 5 or L MW10)' : ' (e.g. T MW10)')); return; }
             const dn = parseDbAddr(rest, 'num');
             if (dn) { if (typeof dn === 'string') { E(ln, DBERR[dn]); return; } push(dn); return; }
             const m = /^(PI|PE|PQ|PA|[IEQAML])([BWD])(\d+)$/i.exec(rest);
@@ -382,8 +382,8 @@ export function compile(src: string, ctx: Ctx = {}): { prog: Program; errors: Er
                 const area = { I: 'I', E: 'I', Q: 'Q', A: 'Q', M: 'M', L: 'L', PI: 'PI', PE: 'PI', PQ: 'PQ', PA: 'PQ' }[m[1].toUpperCase()] as string;
                 const size = m[2].toUpperCase(), byte = +m[3];
                 const w = size === 'B' ? 1 : size === 'W' ? 2 : 4;
-                if (byte + w > AREA_SIZE[area]) { E(ln, 'العنوان "' + rest + '" برا النطاق'); return; }
-                if (op === 'T' && (area === 'I' || area === 'PI')) { E(ln, 'التعليمة T مينفعش تكتب على الدخل'); return; }
+                if (byte + w > AREA_SIZE[area]) { E(ln, 'Address "' + rest + '" is out of range'); return; }
+                if (op === 'T' && (area === 'I' || area === 'PI')) { E(ln, 'T cannot write to an input'); return; }
                 push({ area, byte, size }); return;
             }
             const tc = /^([TC])(\d+)$/i.exec(rest);
@@ -391,53 +391,53 @@ export function compile(src: string, ctx: Ctx = {}): { prog: Program; errors: Er
             if (op === 'L') {
                 const c = parseConst(rest);
                 if (typeof c === 'string') {
-                    E(ln, c === 'S5T' ? 'صيغة الوقت غلط. مثال: S5T#5S أو S5T#1M30S أو S5T#500MS' : c === 'S5Tmax' ? 'أكبر وقت في S5T# هو 2H46M30S' : c === 'big' ? 'الرقم أكبر من حدود 32 بت' : 'مش فاهم القيمة "' + rest + '". جرب: L 5 أو L W#16#FF أو L S5T#2S أو L MW10');
+                    E(ln, c === 'S5T' ? 'Invalid time format. Examples: S5T#5S, S5T#1M30S, S5T#500MS' : c === 'S5Tmax' ? 'Maximum S5T# time is 2H46M30S' : c === 'big' ? 'Number exceeds the 32-bit range' : 'Cannot parse value "' + rest + '". Try: L 5, L W#16#FF, L S5T#2S or L MW10');
                     return;
                 }
                 push({ area: 'K', ...c }); return;
             }
-            E(ln, 'العنوان "' + rest + '" غلط. مثال: T MW10 أو T QB0'); return;
+            E(ln, 'Address "' + rest + '" is invalid. Examples: T MW10, T QB0'); return;
         }
         if (op === 'SPA' || op === 'SPB' || op === 'SPBN' || op === 'JNB' || op === 'JBI' || op === 'JNBI') {
-            if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(rest)) { E(ln, op + ' محتاجة اسم Label (مثال: ' + op + ' M001)'); return; }
+            if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(rest)) { E(ln, op + ' needs a label name (e.g. ' + op + ' M001)'); return; }
             push(rest.toUpperCase()); return;
         }
         if (op === 'BEB') { push(); return; }
         if (op === 'OPN') {
             const om = /^(DB|DI)(\d+)$/i.exec(rest);
-            if (!om || +om[2] < 1 || +om[2] > 65535) { E(ln, 'OPN محتاجة DB أو DI مع رقم من 1 لـ 65535 (مثال: OPN DB1)'); return; }
+            if (!om || +om[2] < 1 || +om[2] > 65535) { E(ln, 'OPN needs DB or DI with a number from 1 to 65535 (e.g. OPN DB1)'); return; }
             push({ reg: om[1].toUpperCase(), n: +om[2] }); return;
         }
-        if (SIMPLE.includes(op)) { if (rest) { E(ln, 'التعليمة ' + op + ' من غير عنوان'); return; } push(); return; }
+        if (SIMPLE.includes(op)) { if (rest) { E(ln, 'Instruction ' + op + ' takes no operand'); return; } push(); return; }
         if (SHIFT.includes(op)) {
-            if (rest && (!/^\d+$/.test(rest) || +rest > 32)) { E(ln, op + ' محتاجة عدد إزاحة من 0 لـ 32 (أو من غير رقم لو العدد في ACCU2)'); return; }
+            if (rest && (!/^\d+$/.test(rest) || +rest > 32)) { E(ln, op + ' needs a shift count from 0 to 32 (or none if the count is in ACCU2)'); return; }
             push(rest ? +rest : -1); return;
         }
         if (LOGW.includes(op)) {
             if (!rest) { push(null); return; }
             const c = parseConst(rest);
-            if (typeof c === 'string') { E(ln, 'قيمة ' + op + ' غلط. مثال: ' + op + ' W#16#00FF'); return; }
+            if (typeof c === 'string') { E(ln, 'Value of ' + op + ' is invalid. Example: ' + op + ' W#16#00FF'); return; }
             push(c); return;
         }
         if (/^(==|<>|>=|<=|>|<)[IDR]$/.test(op) || /^[+\-*\/][IDR]$/.test(op)) {
-            if (rest) { E(ln, 'التعليمة ' + op + ' من غير عنوان'); return; }
+            if (rest) { E(ln, 'Instruction ' + op + ' takes no operand'); return; }
             push(); return;
         }
         if (op === '+') {
             const c = parseConst(rest);
-            if (typeof c === 'string' || !rest) { E(ln, '+ محتاجة رقم ثابت (مثال: + 1)'); return; }
+            if (typeof c === 'string' || !rest) { E(ln, '+ needs a constant (e.g. + 1)'); return; }
             push(c); return;
         }
         if (op === 'INC' || op === 'DEC') {
-            if (!/^\d+$/.test(rest) || +rest > 255) { E(ln, op + ' محتاجة رقم من 0 لـ 255'); return; }
+            if (!/^\d+$/.test(rest) || +rest > 255) { E(ln, op + ' needs a number from 0 to 255'); return; }
             push(+rest); return;
         }
-        if (UNSUPPORTED.includes(op)) { E(ln, 'التعليمة ' + op + ' لسه مش مدعومة في النسخة الأولى'); return; }
-        E(ln, 'التعليمة "' + mm[1] + '" مش معروفة. جرب A, AN, O, =, S, R, L, T, SE, SPB ...');
+        if (UNSUPPORTED.includes(op)) { E(ln, 'Instruction ' + op + ' is not supported yet'); return; }
+        E(ln, 'Instruction "' + mm[1] + '" is not recognized. Try A, AN, O, =, S, R, L, T, SD, JC ...');
     });
-    if (depth > 0) E(depthLine, 'قوس فتح "(" من غير قوس قفل ")"');
+    if (depth > 0) E(depthLine, 'Opening "(" without a closing ")"');
     ins.forEach(x => {
-        if (['SPA', 'SPB', 'SPBN', 'JNB', 'JBI', 'JNBI'].includes(x.op) && labels[x.a] === undefined) E(x.line, 'الـ Label "' + x.a + '" مش موجود في البرنامج');
+        if (['SPA', 'SPB', 'SPBN', 'JNB', 'JBI', 'JNBI'].includes(x.op) && labels[x.a] === undefined) E(x.line, 'Label "' + x.a + '" does not exist in the program');
     });
     return { prog: { ins, labels, lines, dbSizes }, errors, skipped, mnem, temps: tempLay.size, virtual };
 }
@@ -486,12 +486,12 @@ export class Machine {
     arr(a: any) {
         if (a.area === 'DB') {
             const n = a.db || (a.reg === 'DI' ? this.diReg : this.dbReg);
-            if (!n) throw new Error('مفيش ' + (a.reg === 'DI' ? 'DI' : 'DB') + ' مفتوح. استخدم OPN ' + (a.reg === 'DI' ? 'DI' : 'DB') + '1 الأول');
+            if (!n) throw new Error('No ' + (a.reg === 'DI' ? 'DI' : 'DB') + ' is open. Use OPN ' + (a.reg === 'DI' ? 'DI' : 'DB') + '1 first');
             return this.dbArr(n);
         }
         return a.area === 'I' ? this.PII : a.area === 'Q' ? this.Q : a.area === 'L' ? this.Lm : a.area === 'PI' ? this.PI : a.area === 'PQ' ? this.PQ : this.M;
     }
-    getBit(a: Addr) { if (a.byte >= this.arr(a).length) throw new Error('العنوان برا حجم الـ DB المفتوح'); return ((this.arr(a)[a.byte] >> a.bit!) & 1) === 1; }
+    getBit(a: Addr) { if (a.byte >= this.arr(a).length) throw new Error('Address is outside the open DB size'); return ((this.arr(a)[a.byte] >> a.bit!) & 1) === 1; }
     setBit(a: Addr, v: boolean) {
         const m = this.arr(a);
         if (v) m[a.byte] |= 1 << a.bit!; else m[a.byte] &= ~(1 << a.bit!);
@@ -499,13 +499,13 @@ export class Machine {
     }
     readN(a: Addr) {
         const m = this.arr(a); const n = a.size === 'B' ? 1 : a.size === 'W' ? 2 : 4;
-        if (a.byte + n > m.length) throw new Error('العنوان برا حجم الـ DB المفتوح');
+        if (a.byte + n > m.length) throw new Error('Address is outside the open DB size');
         let v = 0; for (let i = 0; i < n; i++) v = (v * 256) + m[a.byte + i];
         return v >>> 0;
     }
     writeN(a: Addr, v: number) {
         const m = this.arr(a); const n = a.size === 'B' ? 1 : a.size === 'W' ? 2 : 4;
-        if (a.byte + n > m.length) throw new Error('العنوان برا حجم الـ DB المفتوح');
+        if (a.byte + n > m.length) throw new Error('Address is outside the open DB size');
         for (let i = 0; i < n; i++) m[a.byte + i] = (v >>> (8 * (n - 1 - i))) & 255;
     }
     timer(n: number): Timer { return this.timers[n] || (this.timers[n] = { kind: '', rem: 0, pre: 0, base: 2, running: false, started: false, sig: false }); }
@@ -549,7 +549,7 @@ export class Machine {
             this.resetChain();
         }
         if (this.pc >= ins.length) { this.endScan(); return false; }
-        if (++this.lastInstrCount > 20000) { this.error = 'Watchdog: السكان طوّل زيادة (لوب لا نهائي؟)'; this.endScan(); return false; }
+        if (++this.lastInstrCount > 20000) { this.error = 'Watchdog: scan took too long (infinite loop?)'; this.endScan(); return false; }
         const x = ins[this.pc]; let next = this.pc + 1; const a = x.a; const op = x.op;
         try {
             if (op === 'O' && a === undefined) { if (!this.fresh && !this.newTerm) { this.acc = this.acc || this.rlo; this.newTerm = true; } }
@@ -654,7 +654,7 @@ export class Machine {
             else if (op === 'CALLSKIP') { const r = this.RLO_now(); this.resetChain(); this.RLO = r; }
             else if (op === 'BE') next = ins.length;
             else if (op === 'BEB') { const r = this.RLO_now(); this.RLO = true; this.resetChain(); this.RLO = true; if (r) next = ins.length; }
-        } catch (e: any) { this.error = 'خطأ تنفيذ: ' + (e && e.message); next = ins.length; }
+        } catch (e: any) { this.error = 'Runtime error: ' + (e && e.message); next = ins.length; }
         this.pc = next;
         if (this.pc >= ins.length) { this.endScan(); return false; }
         return true;

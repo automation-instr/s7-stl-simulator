@@ -1,8 +1,8 @@
 export const EXAMPLES = [
-  { id: 'motor', name: 'ستارت / ستوب', hint: 'I0.0 ستارت، I0.1 ستوب، Q0.0 الموتور', code:
-`// ستارت/ستوب مع Seal-in (التثبيت الذاتي)
-// I0.0 = زر Start    I0.1 = زر Stop    Q0.0 = الموتور
-// القوس بيجمع (Start أو Q0.0) الأول وبعدين AND مع Stop
+  { id: 'motor', name: 'Start / Stop', hint: 'I0.0 start, I0.1 stop, Q0.0 motor', code:
+`// Start/Stop with seal-in (self-holding)
+// I0.0 = Start button    I0.1 = Stop button    Q0.0 = Motor
+// The bracket ORs (Start or Q0.0) first, then ANDs with Stop
       A(
       O     I0.0
       O     Q0.0
@@ -10,48 +10,48 @@ export const EXAMPLES = [
       AN    I0.1
       =     Q0.0
 ` },
-  { id: 'blink', name: 'وميض بتايمر', hint: 'I0.0 تشغيل. Q0.0 بيومض كل ثانية', code:
-`// وميض: Q0.0 شغال ثانية وفاصل ثانية
-// I0.0 = مفتاح التشغيل
+  { id: 'blink', name: 'Timer blinker', hint: 'I0.0 enable. Q0.0 blinks every second', code:
+`// Blinker: Q0.0 on for 1 s, off for 1 s
+// I0.0 = Enable switch
       A     I0.0
       AN    T2
       L     S5T#1S
-      SE    T1        // تأخير تشغيل 1 ثانية
+      SD    T1        // on-delay 1 s
       A     T1
       L     S5T#1S
-      SE    T2        // T2 بيقطع T1 بعد ثانية تانية
+      SD    T2        // T2 breaks T1 after another second
       A     T1
       =     Q0.0
 ` },
-  { id: 'count', name: 'عداد', hint: 'I0.0 زيادة، I0.1 نقصان، I0.2 تحميل 5، I0.3 ريست', code:
-`// عداد C1
-// I0.0 = ZV (زيادة)   I0.1 = ZR (نقصان)
-// I0.2 = تحميل القيمة 5   I0.3 = ريست
+  { id: 'count', name: 'Counter', hint: 'I0.0 count up, I0.1 count down, I0.2 preset 5, I0.3 reset', code:
+`// Counter C1
+// I0.0 = CU (count up)   I0.1 = CD (count down)
+// I0.2 = preset value 5   I0.3 = reset
       A     I0.0
-      ZV    C1
+      CU    C1
       A     I0.1
-      ZR    C1
+      CD    C1
       A     I0.2
       L     C#5
       S     C1
       A     I0.3
       R     C1
-      A     C1        // C1 مش صفر
+      A     C1        // C1 is not zero
       =     Q0.0
       L     C1
       L     3
-      >=I             // C1 >= 3 ؟
+      >=I             // C1 >= 3 ?
       =     Q0.1
 ` },
-  { id: 'jump', name: 'قفز ومقارنة', hint: 'I0.0=1 يحمل 10 في MW10 وإلا 50', code:
-`// قفز شرطي ومقارنة أعداد
-// لو I0.0 = 1  ->  MW10 = 10    وإلا  MW10 = 50
+  { id: 'jump', name: 'Jump and compare', hint: 'I0.0=1 loads 10 into MW10, otherwise 50', code:
+`// Conditional jump and integer compare
+// If I0.0 = 1  ->  MW10 = 10    else  MW10 = 50
 // Q0.0 = (MW10 > 20)
       A     I0.0
-      SPB   M001
+      JC   M001
       L     50
       T     MW10
-      SPA   M002
+      JU   M002
 M001: L     10
       T     MW10
 M002: L     MW10
@@ -59,24 +59,24 @@ M002: L     MW10
       >I
       =     Q0.0
 ` },
-  { id: 'ton', name: 'تأخير تشغيل SE', hint: 'I0.0 بيشغل Q0.0 بعد 5 ثواني. I0.1 ريست', code:
-`// تأخير تشغيل (S_ODT) 5 ثواني
-// I0.0 = دخل التايمر    I0.1 = ريست    Q0.0 = خرج بعد التأخير
+  { id: 'ton', name: 'On-delay timer (S_ODT)', hint: 'I0.0 turns Q0.0 on after 5 s. I0.1 resets', code:
+`// On-delay (S_ODT) 5 seconds
+// I0.0 = timer input    I0.1 = reset    Q0.0 = output after the delay
       A     I0.0
       L     S5T#5S
-      SE    T1
+      SD    T1
       A     T1
       =     Q0.0
       A     I0.1
       R     T1
 ` },
-  { id: 'db', name: 'داتا بلوك DB', hint: 'I0.0 يزود DB1.DBW0 كل ضغطة. Q0.0 لما القيمة >= 3', code:
-`// تخزين عداد في DB1
-// كل مرة I0.0 تضغط، DB1.DBW0 يزيد 1
+  { id: 'db', name: 'Data block (DB)', hint: 'Each I0.0 press adds 1 to DB1.DBW0. Q0.0 when value >= 3', code:
+`// Store a counter in DB1
+// Each time I0.0 is pressed, DB1.DBW0 increases by 1
       OPN   DB1
       A     I0.0
       FP    M10.0
-      SPBN  M001
+      JCN  M001
       L     DBW0
       +     1
       T     DBW0
@@ -85,13 +85,13 @@ M001: L     DBW0
       >=I
       =     Q0.0
       A     I0.1
-      SPBN  M002
+      JCN  M002
       L     0
-      T     DBW0       // I0.1 = ريست
+      T     DBW0       // I0.1 = reset
 M002: NOP   0
 ` },
-  { id: 'real', name: 'أعداد REAL', hint: 'MD2 = 100 / 3.0. Q0.0 لما النتيجة > 30.0', code:
-`// حساب بالأعداد الحقيقية (REAL)
+  { id: 'real', name: 'REAL math', hint: 'MD2 = 100 / 3.0. Q0.0 when result > 30.0', code:
+`// Floating-point (REAL) calculation
       L     100
       T     MW10
       L     MW10
@@ -102,11 +102,11 @@ M002: NOP   0
       T     MD2
       L     MD2
       L     30.0
-      >R              // 33.33 > 30.0 ؟
+      >R              // 33.33 > 30.0 ?
       =     Q0.0
 ` },
-  { id: 'shift', name: 'إزاحة بتات', hint: 'MW20 = 1 إزاحة يسار 3، MW22 = 0xF0 إزاحة يمين 4', code:
-`// إزاحة بتات
+  { id: 'shift', name: 'Bit shifts', hint: 'MW20 = 1 shifted left 3, MW22 = 0xF0 shifted right 4', code:
+`// Bit shifts
       L     1
       SLW   3
       T     MW20      // = 8
@@ -115,7 +115,7 @@ M002: NOP   0
       T     MW22      // = 15 (0x0F)
       L     W#16#00F0
       L     W#16#003C
-      AW              // AND بين ACCU1 وACCU2
+      AW              // AND of ACCU1 and ACCU2
       T     MW24
 ` },
 ];
