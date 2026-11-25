@@ -5,7 +5,7 @@ import { EXAMPLES } from './examples';
 import { BlockSheet, KIND_LABEL } from './BlockSheet';
 const GROUP_NAME: Record<string, string> = { OB: 'Organization blocks', FB: 'Function blocks', FC: 'Functions', DB: 'Data blocks', UDT: 'User data types', SFC: 'System functions', SFB: 'System function blocks', VAT: 'Variable tables' };
 const GROUPS = ['OB', 'FB', 'FC', 'DB', 'UDT', 'SFC', 'SFB', 'VAT'];
-type Row = { key: string; kind: string; num?: number; name: string; title: string; blk?: any };
+type Row = { key: string; kind: string; num?: number; code?: number; iface?: number; name: string; title: string; blk?: any };
 const rowsOf = (proj: any): Row[] => {
     const rows: Row[] = []; const used = new Set<any>();
     if (proj.catalog) {
@@ -13,12 +13,13 @@ const rowsOf = (proj: any): Row[] => {
         for (const c of sorted) {
             const b = proj.blocks.find((x: any) => KIND_LABEL[x.kind] === c.kind && x.num === c.num);
             if (b) used.add(b);
-            rows.push({ key: c.kind + c.num, kind: c.kind, num: c.num, name: c.name || (b ? b.name : c.kind + c.num), title: (b ? titleOf(b.text) : '') || c.comment || (c.name ? c.kind + c.num : ''), blk: b });
+            rows.push({ key: c.kind + c.num, kind: c.kind, num: c.num, code: c.code, iface: c.iface, name: c.name || (b ? b.name : c.kind + c.num), title: (b ? titleOf(b.text) : '') || c.comment || (c.name ? c.kind + c.num : ''), blk: b });
         }
     }
     for (const b of proj.blocks) if (!used.has(b)) rows.push({ key: 'src:' + b.name, kind: KIND_LABEL[b.kind] || b.kind, num: b.num, name: b.name, title: titleOf(b.text), blk: b });
     return rows;
 };
+const fmtD = (t: number) => new Date(t).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
 const titleOf = (t: string) => { const m = /^\s*TITLE\s*=(.*)$/m.exec(t.split('\n').slice(0, 6).join('\n')); return m ? m[1].trim() : ''; };
 const NEWTPL = '// New program\n// Write your STL here, then press Save.\n';
 const WELCOME = '// Welcome. Open "Examples" to pick a ready-made program,\n// load your own AWL/ZIP project, or type STL here.\n';
@@ -222,7 +223,7 @@ export function App() {
 
     return <div className="s7">
         <div className="s7-top">
-            <div className="s7-title">{'S7-300 Simulator (STL)'}<small>{'Siemens STEP 7 Classic | Version 1.3.4'}</small></div>
+            <div className="s7-title">{'S7-300 Simulator (STL)'}<small>{'Siemens STEP 7 Classic | Version 1.3.5'}</small></div>
             <div className={'s7-mode ' + (running ? 'run' : 'stop')}>{running ? 'RUN' : 'STOP'}</div>
         </div>
 
@@ -288,11 +289,12 @@ export function App() {
                     <summary>{g}<span>{GROUP_NAME[g]} | {bfilter ? items.length + ' / ' : ''}{all.length}{withSrc < all.length ? ' (' + withSrc + ' with source)' : ''}</span></summary>
                     {items.slice(0, 200).map(r => {
                         const x = r.blk; const v: any = x && verdicts.find((y: any) => y.name === x.name);
-                        return <div className={'s7-tc' + (x && blk === x.name ? ' q' : '')} key={r.key} style={x ? undefined : { opacity: .6 }}>
+                        return <div className={'s7-tc' + (x && blk === x.name ? ' q' : '')} key={r.key} >
                             <div style={{ flex: 1, minWidth: 0 }}>
-                                <div className="nm" style={{ direction: 'ltr', textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.num != null && <span className="s7-num">{r.kind + r.num}</span>}{r.name !== r.kind + r.num && r.name}{x && <small>{x.text.split('\n').length} {'lines'}</small>}</div>
-                                {r.title && <div className="s7-hint" style={{ marginTop: 2 }}>{r.title}</div>}
-                                {!x && <div className="s7-hint" style={{ marginTop: 2 }}>{'Compiled block only: no source in the files you loaded'}</div>}
+                                <div className="nm" style={{ direction: 'ltr', textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.num != null && <span className="s7-bn">{r.kind + r.num}</span>}{r.name !== r.kind + r.num && r.name}{x && <small>{x.text.split('\n').length} {'lines'}</small>}</div>
+                                {r.title && <div className="s7-cmt">{r.title}</div>}
+                                {(r.code || r.iface) && <div className="s7-dates">{r.code ? <span>{'Code'} {fmtD(r.code)}</span> : null}{r.iface ? <span>{'Interface'} {fmtD(r.iface)}</span> : null}</div>}
+                                {!x && <div className="s7-hint" style={{ marginTop: 2 }}>{'No source (compiled block only)'}</div>}
                                 {v && <div className="s7-hint" style={{ marginTop: 2, color: v.err ? '#ff8a80' : v.skip ? '#ffcc80' : '#81c995' }}>
                                     {v.err ? 'Cannot load: ' + v.err + ' error(s)' : v.skip ? 'Loads (' + v.ins + ' instructions) with ' + v.skip + ' skipped CALL(s)' : 'Loads (' + v.ins + ' instructions)'}{v.virt ? ' | ' + v.virt + ' virtual DB field(s)' : ''}
                                 </div>}

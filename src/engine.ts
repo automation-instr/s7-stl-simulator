@@ -226,15 +226,30 @@ export function parseSymInfo(buf: Uint8Array): Record<string, { name: string; co
 }
 // block directory of a STEP 7 project (ombstx/offline/*/BAUSTEIN.DBF): [{kind, num}] of non-deleted blocks
 const CAT_KIND: Record<number, string> = { 0: 'UDT', 8: 'OB', 10: 'DB', 12: 'FC', 13: 'SFC', 14: 'FB', 15: 'SFB', 27: 'VAT' };
-export function parseBlockCatalog(buf: Uint8Array): { kind: string; num: number }[] {
+export function parseBlockCatalog(buf: Uint8Array): { kind: string; num: number; id: number }[] {
     const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
     const hlen = dv.getUint16(8, true), rlen = dv.getUint16(10, true), nrec = dv.getUint32(4, true);
     const flds: { name: string; len: number; off: number }[] = []; let off = 1;
     for (let p = 32; p + 32 <= hlen && buf[p] !== 0x0d; p += 32) { let nm = ''; for (let i = 0; i < 11 && buf[p + i]; i++) nm += String.fromCharCode(buf[p + i]); const len = buf[p + 16]; flds.push({ name: nm, len, off }); off += len; }
-    const fT = flds.find(f => f.name === 'TYP'), fN = flds.find(f => f.name === 'NUMMER'); const out: { kind: string; num: number }[] = [];
+    const fT = flds.find(f => f.name === 'TYP'), fN = flds.find(f => f.name === 'NUMMER'); const fI = flds.find(f => f.name === 'ID'); const out: { kind: string; num: number; id: number }[] = [];
     if (!fT || !fN) return out;
     const rd = (r: number, f: { len: number; off: number }) => { let s = ''; for (let i = 0; i < f.len; i++) { const c = buf[r + f.off + i]; if (c) s += String.fromCharCode(c); } return s.trim(); };
-    for (let i = 0; i < nrec; i++) { const r = hlen + i * rlen; if (r + rlen > buf.length) break; if (buf[r] === 0x2a) continue; const k = CAT_KIND[+rd(r, fT)]; if (k) out.push({ kind: k, num: +rd(r, fN) }); }
+    for (let i = 0; i < nrec; i++) { const r = hlen + i * rlen; if (r + rlen > buf.length) break; if (buf[r] === 0x2a) continue; const k = CAT_KIND[+rd(r, fT)]; if (k) out.push({ kind: k, num: +rd(r, fN), id: fI ? +rd(r, fI) : -1 }); }
+    return out;
+}
+// SUBBLK.DBF: per block, the sub-block whose type equals the block type carries two S7 timestamps
+// (6 bytes: ms of day as uint32 BE, then days since 1984-01-01 as uint16 BE): code and interface last modified.
+const SUB_TYP: Record<string, number> = { UDT: 0, OB: 8, DB: 10, FC: 12, SFC: 13, FB: 14, SFB: 15, VAT: 27 };
+const s7ts = (b: Uint8Array, o: number): number => { const ms = ((b[o] << 24) | (b[o + 1] << 16) | (b[o + 2] << 8) | b[o + 3]) >>> 0; const d = (b[o + 4] << 8) | b[o + 5]; if (!d && !ms) return 0; return Date.UTC(1984, 0, 1) + d * 86400000 + ms; };
+export function parseBlockDates(buf: Uint8Array): Record<number, Record<number, { code: number; iface: number }>> {
+    const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+    const hlen = dv.getUint16(8, true), rlen = dv.getUint16(10, true), nrec = dv.getUint32(4, true);
+    const flds: Record<string, { len: number; off: number }> = {}; let off = 1;
+    for (let p = 32; p + 32 <= hlen && buf[p] !== 0x0d; p += 32) { let nm = ''; for (let i = 0; i < 11 && buf[p + i]; i++) nm += String.fromCharCode(buf[p + i]); const len = buf[p + 16]; flds[nm] = { len, off }; off += len; }
+    const out: Record<number, Record<number, { code: number; iface: number }>> = {};
+    const num = (r: number, f: { len: number; off: number }) => { let s = ''; for (let i = 0; i < f.len; i++) { const c = buf[r + f.off + i]; if (c) s += String.fromCharCode(c); } return +s.trim(); };
+    if (!flds.OBJECTID || !flds.SUBBLKTYP || !flds.TIMESTAMP1 || !flds.TIMESTAMP2) return out;
+    for (let i = 0; i < nrec; i++) { const r = hlen + i * rlen; if (r + rlen > buf.length) break; if (buf[r] === 0x2a) continue; const id = num(r, flds.OBJECTID), t = num(r, flds.SUBBLKTYP); (out[id] = out[id] || {})[t] = { code: s7ts(buf, r + flds.TIMESTAMP1.off), iface: s7ts(buf, r + flds.TIMESTAMP2.off) }; }
     return out;
 }
 // plain text symbol table: "NAME<TAB or comma>ADDRESS" per line, or "NAME  ADDRESS" (SDF/ASC export)
