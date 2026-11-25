@@ -20,6 +20,7 @@ const rowsOf = (proj: any): Row[] => {
     return rows;
 };
 const titleOf = (t: string) => { const m = /^\s*TITLE\s*=(.*)$/m.exec(t.split('\n').slice(0, 6).join('\n')); return m ? m[1].trim() : ''; };
+const NEWTPL = '// New program\n// Write your STL here, then press Save.\n';
 const WELCOME = '// Welcome. Open "Examples" to pick a ready-made program,\n// load your own AWL/ZIP project, or type STL here.\n';
 
 const hex = (v: number, n = 8) => (v >>> 0).toString(16).toUpperCase().padStart(n, '0');
@@ -61,6 +62,7 @@ export function App() {
     const [exId, setExId] = useState('');
     const [progs, setProgs] = useState(loadProgs);
     const [saveName, setSaveName] = useState('');
+    const [cur, setCur] = useState<'' | 'new' | 'saved'>('');
     const [saveMsg, setSaveMsg] = useState('');
     const [delAsk, setDelAsk] = useState('');
     const [running, setRunning] = useState(false);
@@ -83,9 +85,10 @@ export function App() {
         const name = saveName.trim().slice(0, 40);
         if (!name) { setSaveMsg('Type a name for the program first'); return; }
         const next = { ...progs, [name]: { code: text, ts: Date.now() } };
-        if (lsSet(LS_PROGS, JSON.stringify(next))) { setProgs(next); setSaveMsg('Saved: ' + name); } else setSaveMsg('Browser refused to save (storage is blocked)');
+        if (lsSet(LS_PROGS, JSON.stringify(next))) { setProgs(next); setCur('saved'); setSaveMsg('Saved: ' + name); } else setSaveMsg('Browser refused to save (storage is blocked)');
     };
-    const doLoad = (name: string) => { setRunning(false); setText(progs[name].code); setExId(''); setSaveName(name); mach.I.fill(0); mach.reset(); bump(); setSaveMsg('Opened: ' + name); };
+    const doNew = () => { setRunning(false); setText(NEWTPL); setExId(''); setCur('new'); setSaveName(''); setSaveMsg(''); setBlk(''); mach.I.fill(0); mach.reset(); bump(); setTimeout(() => { const el = document.querySelector('.s7-ta') as HTMLElement | null; if (el) el.focus(); }, 50); };
+    const doLoad = (name: string) => { setRunning(false); setText(progs[name].code); setExId(''); setCur('saved'); setSaveName(name); mach.I.fill(0); mach.reset(); bump(); setSaveMsg('Opened: ' + name); };
     const doDel = (name: string) => {
         if (delAsk !== name) { setDelAsk(name); return; }
         const next = { ...progs }; delete next[name]; lsSet(LS_PROGS, JSON.stringify(next)); setProgs(next); setDelAsk(''); setSaveMsg('Deleted: ' + name);
@@ -101,7 +104,7 @@ export function App() {
     }, [proj, ctx]);
     const pickBlock = (name: string) => {
         const b = proj && proj.blocks.find(x => x.name === name); if (!b) return;
-        setRunning(false); setBlk(name); setText(b.text); setExId(''); mach.I.fill(0); mach.reset(); bump();
+        setRunning(false); setBlk(name); setText(b.text); setExId(''); setCur(''); mach.I.fill(0); mach.reset(); bump();
         if (proj) idbPut('project', { proj, blk: name });
     };
     const hasErr = errors.length > 0;
@@ -169,7 +172,7 @@ export function App() {
 
     const loadEx = (id: string) => {
         const e = EXAMPLES.find(x => x.id === id)!;
-        setRunning(false); setText(e.code); setExId(id);
+        setRunning(false); setText(e.code); setExId(id); setCur(''); setSaveMsg('');
         mach.I.fill(0); mach.reset(); bump();
     };
     const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -182,11 +185,11 @@ export function App() {
             const r = await loadFiles(files);
             setRunning(false); mach.I.fill(0); mach.reset();
             if (r.kind === 'program') {
-                setProj(null); setBlk(''); idbDel('project'); setText(r.text); setExId('');
+                setProj(null); setBlk(''); idbDel('project'); setText(r.text); setExId(''); setCur('');
                 setFileMsg('File loaded: ' + r.name + ' (' + r.text.split('\n').length + ' lines)');
             } else {
                 const first = r.proj.blocks.find(b => b.kind === 'FUNCTION' || b.kind === 'ORGANIZATION_BLOCK' || b.kind === 'FUNCTION_BLOCK');
-                setProj(r.proj); setBlk(first ? first.name : ''); if (first) { setText(first.text); setExId(''); }
+                setProj(r.proj); setBlk(first ? first.name : ''); if (first) { setText(first.text); setExId(''); setCur(''); }
                 const ok = await idbPut('project', { proj: r.proj, blk: first ? first.name : '' });
                 setFileMsg('Project loaded: ' + r.proj.blocks.length + ' blocks, ' + r.proj.symCount + ' symbols, ' + Object.keys(r.proj.dbs).length + ' DB' + (ok ? '' : ' (will not be kept after the page closes)'));
             }
@@ -219,7 +222,7 @@ export function App() {
 
     return <div className="s7">
         <div className="s7-top">
-            <div className="s7-title">{'S7-300 Simulator (STL)'}<small>{'Siemens STEP 7 Classic | Version 1.3.1'}</small></div>
+            <div className="s7-title">{'S7-300 Simulator (STL)'}<small>{'Siemens STEP 7 Classic | Version 1.3.2'}</small></div>
             <div className={'s7-mode ' + (running ? 'run' : 'stop')}>{running ? 'RUN' : 'STOP'}</div>
         </div>
 
@@ -250,15 +253,22 @@ export function App() {
         <div className="s7-panel">
             <div className="s7-h">{'Programs'}</div>
             <div className="s7-row" style={{ marginTop: 0 }}>
-                <button type="button" className="s7-btn wide" onClick={() => setPick(true)}><b>☰</b>{'Examples'}</button>
-                <button type="button" className="s7-btn wide" onClick={() => fileRef.current && fileRef.current.click()}><b>📂</b>{busy ? 'Wait...' : 'Open file / project'}</button>
+                <button type="button" className="s7-btn wide" onClick={doNew}><b>＋</b>{'New'}</button>
+                <button type="button" className="s7-btn wide" onClick={() => setPick(true)}><b>📂</b>{'Open'}</button>
                 <input ref={fileRef} type="file" accept=".awl,.txt,.stl,.src,.zip,.dbf,.sdf,.asc,.csv,.sym,text/plain,application/octet-stream,application/zip" multiple style={{ display: 'none' }} onChange={onFile} />
             </div>
-            <div className="s7-hint">{'AWL sources, a STEP 7 project ZIP, or a symbol table (SYMLIST.DBF).'}</div>
-            {fileMsg && <div className="s7-ok" style={{ marginTop: 8 }}>{fileMsg}</div>}
+                        {fileMsg && <div className="s7-ok" style={{ marginTop: 8 }}>{fileMsg}</div>}
             {pick && <div className="s7-modal" onClick={() => setPick(false)}>
-                <div className="s7-sheet" role="dialog" aria-label="Examples" onClick={e => e.stopPropagation()}>
-                    <div className="s7-h">{'Choose an example'}<button type="button" className="s7-x" aria-label="Close" onClick={() => setPick(false)}>✕</button></div>
+                <div className="s7-sheet" role="dialog" aria-label="Open" onClick={e => e.stopPropagation()}>
+                    <div className="s7-h">{'Open'}<button type="button" className="s7-x" aria-label="Close" onClick={() => setPick(false)}>✕</button></div>
+                    <button type="button" className="s7-btn wide" style={{ width: '100%', marginBottom: 12 }} onClick={() => { setPick(false); fileRef.current && fileRef.current.click(); }}><b>📁</b>{'From file or project (AWL / ZIP / symbols)'}</button>
+                    <div className="s7-h">{'My programs'}<span>{'On this device only'}</span></div>
+                    {Object.keys(progs).length === 0 && <div className="s7-hint" style={{ marginBottom: 10 }}>{'No saved programs yet. Press New, write a program and Save it.'}</div>}
+                    {Object.keys(progs).sort((x, y) => progs[y].ts - progs[x].ts).map(n => <div className="s7-ex row" key={n}>
+                        <button type="button" className="main" onClick={() => { doLoad(n); setPick(false); }}><b>{n}</b><small>{new Date(progs[n].ts).toLocaleString('en-GB')}</small></button>
+                        <button type="button" className="s7-chip" style={delAsk === n ? { background: '#b3261e', borderColor: '#b3261e' } : undefined} onClick={() => doDel(n)}>{delAsk === n ? 'Confirm delete' : 'Delete'}</button>
+                    </div>)}
+                    <div className="s7-h" style={{ marginTop: 14 }}>{'Examples'}</div>
                     {EXAMPLES.map(e => <button type="button" key={e.id} className="s7-ex" onClick={() => { loadEx(e.id); setPick(false); }}><b>{e.name}</b><small>{e.hint}</small></button>)}
                 </div>
             </div>}
@@ -303,23 +313,14 @@ export function App() {
             return <BlockSheet b={vb} layout={vb.db ? proj.dbs[vb.db] : undefined} status={vv ? (vv.err ? 'Cannot load: ' + vv.err + ' error(s)' : 'Loads (' + vv.ins + ' instructions)' + (vv.skip ? ', ' + vv.skip + ' skipped CALL(s)' : '')) : undefined}
                 onLoad={vv ? () => { pickBlock(viewBlk); setViewBlk(''); } : undefined} onClose={() => setViewBlk('')} />; })()}
 
-        <div className="s7-panel">
-            <div className="s7-h">{'My saved programs'}<span>{'On this device only'}</span></div>
-            <div className="s7-row" style={{ marginTop: 0 }}>
-                <input className="s7-sel" style={{ flex: 2 }} value={saveName} placeholder={'Program name'} maxLength={40} onChange={e => setSaveName(e.target.value)} aria-label={'Program name'} />
-                <button type="button" className="s7-chip on" onClick={doSave}>{'💾 Save'}</button>
-            </div>
-            {saveMsg && <div className="s7-ok">{saveMsg}</div>}
-            {Object.keys(progs).sort((x, y) => progs[y].ts - progs[x].ts).map(n => <div className="s7-tc" key={n}>
-                <div style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 700 }}>{n}<div className="s7-hint" style={{ marginTop: 2 }}>{new Date(progs[n].ts).toLocaleString('en-GB')}</div></div>
-                <button type="button" className="s7-chip" onClick={() => doLoad(n)}>{'Open'}</button>
-                <button type="button" className="s7-chip" style={delAsk === n ? { background: '#b3261e', borderColor: '#b3261e' } : undefined} onClick={() => doDel(n)}>{delAsk === n ? 'Confirm delete' : 'Delete'}</button>
-            </div>)}
-            {Object.keys(progs).length === 0 && <div className="s7-hint">{'No saved programs yet. Type a name and press Save.'}</div>}
-        </div>
 
         <div className="s7-panel">
             <div className="s7-h">{'Program (STL)'}<span>{lineCount} {'lines'}{proj && blk ? ' | ' + blk : ''}</span></div>
+            {cur && <div className="s7-savebar">
+                <input className="s7-sel" value={saveName} placeholder={'Program name'} maxLength={40} onChange={e => setSaveName(e.target.value)} aria-label={'Program name'} onKeyDown={e => { if (e.key === 'Enter') doSave(); }} />
+                <button type="button" className="s7-chip on" onClick={doSave}>{'💾 Save'}</button>
+            </div>}
+            {cur && saveMsg && <div className="s7-ok" style={{ marginTop: 0, marginBottom: 8 }}>{saveMsg}</div>}
             <div className="s7-row" style={{ marginTop: 0, marginBottom: 8 }}>
                 <select className="s7-sel" value={mnemSel} onChange={e => setMnemSel(e.target.value as any)} aria-label={'Mnemonics'}>
                     <option value="auto">{'Mnemonics: auto ('}{mnemUsed === 'en' ? 'English' : 'Deutsch'})</option>

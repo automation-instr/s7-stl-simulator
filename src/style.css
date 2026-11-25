@@ -125,3 +125,9 @@ body { background: #0b0f14; }
 .bv-code > div { flex-wrap: wrap; white-space: pre-wrap; overflow-wrap: anywhere; }
 .bv-code code { flex: 1 1 0; min-width: 0; }
 @media (max-width: 700px) { .bv-code .cm { flex-basis: 100%; margin: 0 0 2px 54px; } }
+
+.s7-savebar { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
+.s7-savebar .s7-sel { flex: 1; }
+.s7-ex.row { display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 0; }
+.s7-ex.row .main { flex: 1; min-width: 0; text-align: left; background: none; border: 0; color: inherit; font: inherit; padding: 6px 14px; cursor: pointer; }
+.s7-ex.row .main b { display: block; font-size: 15px; font-weight: 600; overflow-wrap: anywhere; } .s7-ex.row .main small { display: block; color: #8b98a9; font-size: 12px; }
