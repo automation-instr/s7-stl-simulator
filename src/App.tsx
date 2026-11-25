@@ -5,7 +5,7 @@ import { EXAMPLES } from './examples';
 import { BlockSheet, KIND_LABEL } from './BlockSheet';
 const GROUP_NAME: Record<string, string> = { OB: 'Organization blocks', FB: 'Function blocks', FC: 'Functions', DB: 'Data blocks', UDT: 'User data types', SFC: 'System functions', SFB: 'System function blocks', VAT: 'Variable tables' };
 const GROUPS = ['OB', 'FB', 'FC', 'DB', 'UDT', 'SFC', 'SFB', 'VAT'];
-type Row = { key: string; kind: string; name: string; title: string; blk?: any };
+type Row = { key: string; kind: string; num?: number; name: string; title: string; blk?: any };
 const rowsOf = (proj: any): Row[] => {
     const rows: Row[] = []; const used = new Set<any>();
     if (proj.catalog) {
@@ -13,10 +13,10 @@ const rowsOf = (proj: any): Row[] => {
         for (const c of sorted) {
             const b = proj.blocks.find((x: any) => KIND_LABEL[x.kind] === c.kind && x.num === c.num);
             if (b) used.add(b);
-            rows.push({ key: c.kind + c.num, kind: c.kind, name: c.name || (b ? b.name : c.kind + c.num), title: (b ? titleOf(b.text) : '') || c.comment || (c.name ? c.kind + c.num : ''), blk: b });
+            rows.push({ key: c.kind + c.num, kind: c.kind, num: c.num, name: c.name || (b ? b.name : c.kind + c.num), title: (b ? titleOf(b.text) : '') || c.comment || (c.name ? c.kind + c.num : ''), blk: b });
         }
     }
-    for (const b of proj.blocks) if (!used.has(b)) rows.push({ key: 'src:' + b.name, kind: KIND_LABEL[b.kind] || b.kind, name: b.name, title: titleOf(b.text), blk: b });
+    for (const b of proj.blocks) if (!used.has(b)) rows.push({ key: 'src:' + b.name, kind: KIND_LABEL[b.kind] || b.kind, num: b.num, name: b.name, title: titleOf(b.text), blk: b });
     return rows;
 };
 const titleOf = (t: string) => { const m = /^\s*TITLE\s*=(.*)$/m.exec(t.split('\n').slice(0, 6).join('\n')); return m ? m[1].trim() : ''; };
@@ -222,7 +222,7 @@ export function App() {
 
     return <div className="s7">
         <div className="s7-top">
-            <div className="s7-title">{'S7-300 Simulator (STL)'}<small>{'Siemens STEP 7 Classic | Version 1.3.3'}</small></div>
+            <div className="s7-title">{'S7-300 Simulator (STL)'}<small>{'Siemens STEP 7 Classic | Version 1.3.4'}</small></div>
             <div className={'s7-mode ' + (running ? 'run' : 'stop')}>{running ? 'RUN' : 'STOP'}</div>
         </div>
 
@@ -281,7 +281,7 @@ export function App() {
             <input className="s7-sel" style={{ width: '100%', marginBottom: 8 }} dir="ltr" value={bfilter} placeholder={'Filter blocks by name or title'} aria-label="Filter blocks" onChange={e => setBfilter(e.target.value)} />
             {GROUPS.map(g => {
                 const all = rowsOf(proj).filter(r => r.kind === g);
-                const items = all.filter(r => !bfilter || (r.name + ' ' + r.title).toLowerCase().includes(bfilter.toLowerCase()));
+                const items = all.filter(r => !bfilter || ((r.num != null ? r.kind + r.num : '') + ' ' + r.name + ' ' + r.title).toLowerCase().includes(bfilter.toLowerCase()));
                 if (!all.length) return null;
                 const withSrc = all.filter(r => r.blk).length;
                 return <details className="s7-grp" key={g} open={(g === 'FC' || g === 'FB' || g === 'OB') && all.length < 40 || !!bfilter}>
@@ -290,7 +290,7 @@ export function App() {
                         const x = r.blk; const v: any = x && verdicts.find((y: any) => y.name === x.name);
                         return <div className={'s7-tc' + (x && blk === x.name ? ' q' : '')} key={r.key} style={x ? undefined : { opacity: .6 }}>
                             <div style={{ flex: 1, minWidth: 0 }}>
-                                <div className="nm" style={{ direction: 'ltr', textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.name}{x && <small>{x.text.split('\n').length} {'lines'}</small>}</div>
+                                <div className="nm" style={{ direction: 'ltr', textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.num != null && <span className="s7-num">{r.kind + r.num}</span>}{r.name !== r.kind + r.num && r.name}{x && <small>{x.text.split('\n').length} {'lines'}</small>}</div>
                                 {r.title && <div className="s7-hint" style={{ marginTop: 2 }}>{r.title}</div>}
                                 {!x && <div className="s7-hint" style={{ marginTop: 2 }}>{'Compiled block only: no source in the files you loaded'}</div>}
                                 {v && <div className="s7-hint" style={{ marginTop: 2, color: v.err ? '#ff8a80' : v.skip ? '#ffcc80' : '#81c995' }}>

@@ -20,8 +20,9 @@ await send('DOM.setFileInputFiles',{files:['/downloads/MORE PLC-13b9f3c4-9b2b564
 console.log('groups:',await ev('[...document.querySelectorAll(".s7-grp summary")].map(e=>e.innerText.replace(/\\n/g," ")).join(" ## ")'));
 console.log('footer:',await ev('[...document.querySelectorAll(".s7-hint")].map(e=>e.innerText).find(t=>t.startsWith("Block directory"))'));
 console.log('FC rows with source:',await ev('[...document.querySelectorAll(".s7-grp")].find(g=>g.innerText.startsWith("FC")).querySelectorAll(".s7-tc:not([style])").length'));
-console.log('first FC rows:',await ev('[...[...document.querySelectorAll(".s7-grp")].find(g=>g.innerText.startsWith("FC")).querySelectorAll(".s7-tc")].slice(0,24).map(e=>e.innerText.split("\\n")[0]+(e.getAttribute("style")?"*":"")).join(" | ")'));
+await ev('[...document.querySelectorAll(".s7-grp")].forEach(g=>{if(g.innerText.startsWith("FC")||g.innerText.startsWith("DB")||g.innerText.startsWith("FB"))g.open=true})'); await sl(300);
+console.log('first FC rows:',await ev('[...[...document.querySelectorAll(".s7-grp")].find(g=>g.innerText.startsWith("FC")).querySelectorAll(".s7-tc")].slice(0,24).map(e=>e.innerText.replace(/\\n/g," / ").slice(0,60)).join(" | ")'));
 console.log('OB:',await ev('[...[...document.querySelectorAll(".s7-grp")].find(g=>g.innerText.startsWith("OB")).querySelectorAll(".s7-tc")].map(e=>e.innerText.split("\\n")[0]).join(" | ")'));
-await ev('[...document.querySelectorAll(".s7-grp")].find(g=>g.innerText.startsWith("FC")).scrollIntoView()'); await sl(300); await shot('/tmp/pwa/v14_groups.png');
+await ev('[...document.querySelectorAll(".s7-grp")].find(g=>g.innerText.startsWith("FC")).scrollIntoView()'); await sl(300); await shot('/tmp/pwa/v134_groups.png');
 console.log('scrollW',await ev('document.documentElement.scrollWidth'));
 chrome.kill();

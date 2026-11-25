@@ -36,7 +36,7 @@ export function BlockSheet({ b, layout, onClose, onLoad, status }: { b: Block; l
         <div className="s7-sheet bv" role="dialog" aria-label={'Block ' + v.name} onClick={e => e.stopPropagation()}>
             <div className="bv-head">
                 <div style={{ minWidth: 0 }}>
-                    <div className="bv-kind">{label}</div>
+                    <div className="bv-kind">{label}{b.num != null && !b.db ? ' ' + b.num : ''}</div>
                     <div className="bv-name">{v.name}</div>
                     {v.title && <div className="bv-title">{v.title}</div>}
                 </div>
