@@ -300,7 +300,7 @@ export function App() {
                                 <div className="nm" style={{ direction: 'ltr', textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.num != null && <span className="s7-bn">{r.kind + r.num}</span>}{r.name !== r.kind + r.num && r.name}{x && <small>{x.text.split('\n').length} {'lines'}</small>}</div>
                                 {r.title && <div className="s7-cmt">{r.title}</div>}
                                 {(r.code || r.iface) && <div className="s7-dates">{r.code ? <span>{'Code'} {fmtD(r.code)}</span> : null}{r.iface ? <span>{'Interface'} {fmtD(r.iface)}</span> : null}</div>}
-                                {!x && <div className="s7-hint" style={{ marginTop: 2 }}>{'Compiled block: shown as decoded STL (no source)'}</div>}
+                                {!x && <div className="s7-hint" style={{ marginTop: 2 }}>{r.kind === 'UDT' ? 'Data type: shown as its declaration' : 'Compiled block: shown as decoded STL (no source)'}</div>}
                                 {v && <div className="s7-hint" style={{ marginTop: 2, color: v.err ? '#ff8a80' : v.skip ? '#ffcc80' : '#81c995' }}>
                                     {v.err ? 'Cannot load: ' + v.err + ' error(s)' : v.skip ? 'Loads (' + v.ins + ' instructions) with ' + v.skip + ' skipped CALL(s)' : 'Loads (' + v.ins + ' instructions)'}{v.virt ? ' | ' + v.virt + ' virtual DB field(s)' : ''}
                                 </div>}
@@ -332,7 +332,8 @@ export function App() {
                     <div className="bv-meta">
                         {r.code ? <span><u>Code</u> {fmtD(r.code)}</span> : null}{r.iface ? <span><u>Interface</u> {fmtD(r.iface)}</span> : null}{c.codeBytes ? <span><u>Code size</u> {c.codeBytes} bytes</span> : null}
                     </div>
-                    {c.code && c.code.length ? <Mc7Stl proj={proj} kind={r.kind} num={r.num!} comp={c} /> :
+                    {c.code && c.code.length ? <Mc7Stl proj={proj} kind={r.kind} num={r.num!} comp={c} /> : r.kind === 'UDT' ?
+                        <div className="s7-hint" style={{ margin: '8px 0' }}>{'User data type. It has no code: the declaration below is its structure, read directly from the project. Data blocks that use it are laid out with these fields.'}</div> :
                         <div className="s7-hint" style={{ margin: '8px 0' }}>{'Compiled block. The project files hold its instructions in compiled form and they are not decoded yet, so only the parts below are shown. Everything here is read directly from the project.'}</div>}
                     {c.decl && <div><div className="s7-h">{'Declarations'}</div><pre className="bv-pre">{c.decl}</pre></div>}
                     {c.nets && c.nets.length > 0 && <div><div className="s7-h">{'Network titles'}<span>{c.nets.length}</span></div>
