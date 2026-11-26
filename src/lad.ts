@@ -5,8 +5,13 @@
  * one level of A(/O( parentheses, bare O, = / S / R coils, FP/FN edge elements,
  * L S5T#.. + timer op as a timer box, L a + T b as a MOVE box.
  * Anything else (jumps, labels, CALL, OPN, XOR, word logic, SET/CLR/NOT,
- * compares, multi-value expressions) makes that NETWORK fall back to STL text.
+ * compares, multi-value expressions, AN(/ON( negated groups) makes that
+ * NETWORK fall back to STL text.
  * The simulator keeps running the STL; this is only a display.
+ *
+ * STL RLO semantics kept exactly: an A/AN after an O..O sequence is ANDed with
+ * the whole preceding OR combination, never folded into the last branch:
+ *   A a / O b / AN c   ==   (a OR b) AND (NOT c)
  */
 
 export interface LadContact { kind: 'no' | 'nc'; op: string }            // --| |-- / --|/--
@@ -42,9 +47,26 @@ export function splitNetworks(src: string): { n: number; title: string; lines: s
   return out;
 }
 
-interface Parser {
-  ok: boolean;
-  note?: string;
+/** One parsing frame: series elems accumulated, plus an in-progress OR combination. */
+interface Frame {
+  kind: 'net' | 'A' | 'O';
+  elems: LadElem[];        // finished series elements
+  branches: LadElem[][];   // closed branches of the current OR combination
+  chain: LadElem[];        // the branch currently being built
+  inOr: boolean;
+  afterOOp: boolean;       // current chain started from an `O x` operand (vs a bare O)
+}
+
+/** Fold the in-progress OR combination of a frame into its series elems. */
+function foldOr(f: Frame) {
+  if (!f.inOr) { f.elems.push(...f.chain); f.chain = []; return; }
+  f.branches.push(f.chain);
+  f.chain = [];
+  const bs = f.branches.filter(b => b.length > 0);
+  f.branches = [];
+  f.inOr = false;
+  if (bs.length === 1) f.elems.push(...bs[0]);
+  else if (bs.length > 1) f.elems.push({ kind: 'or', branches: bs });
 }
 
 /** Convert one network's statement lines into rungs (or mark non-convertible). */
@@ -59,28 +81,30 @@ export function convertNetwork(n: number, title: string, lines: string[]): LadNe
     let op = m[1].toUpperCase();
     let arg = m[2].trim().replace(/;$/, '');
     if ((op === 'A' || op === 'O' || op === 'AN' || op === 'ON') && arg === '(') { op += '('; arg = ''; }
-    // normalize German timer mnemonics to display form
-    const DE: Record<string, string> = { SI: 'SP', SV: 'SE', SS: 'SS', SA: 'SF', SE: 'SE' };
-    if (TIMER_OPS.has(op) && DE[op]) op = op; // keep as written
     toks.push({ op, arg });
   }
-  // group stack: each group is a list of branches; a branch is a series chain
-  interface Frame { branches: LadElem[][]; chain: LadElem[] }
-  const stack: Frame[] = [{ branches: [], chain: [] }];
+
+  const stack: Frame[] = [{ kind: 'net', elems: [], branches: [], chain: [], inOr: false, afterOOp: false }];
   const top = () => stack[stack.length - 1];
-  const closeChain = () => { const f = top(); if (f.chain.length) { f.branches.push(f.chain); f.chain = []; } };
   const rungs: LadRung[] = [];
   let pendingLoad: string | null = null;   // last L value, candidate for timer TV / MOVE src
-  const endRung = (out: LadOut): LadNetwork | null => {
-    closeChain();
+
+  /** Add a series element, honouring RLO semantics: A after an O-group closes the OR first. */
+  const seriesElem = (e: LadElem) => {
     const f = top();
+    // RLO semantics: an A/AN after an `O x` operation ANDs with the whole OR
+    // combination; after a bare O it is a first check inside the new branch.
+    if (f.inOr && f.chain.length > 0 && f.afterOOp) foldOr(f);
+    f.chain.push(e);
+    f.afterOOp = false;
+  };
+
+  const endRung = (out: LadOut): LadNetwork | null => {
     if (stack.length !== 1) return fail('unbalanced parentheses');
-    let chain: LadElem[];
-    if (f.branches.length === 0) chain = [];
-    else if (f.branches.length === 1) chain = f.branches[0];
-    else chain = [{ kind: 'or', branches: f.branches }];
-    rungs.push({ chain, out });
-    f.branches = []; f.chain = [];
+    const f = top();
+    foldOr(f);
+    rungs.push({ chain: f.elems, out });
+    f.elems = []; f.branches = []; f.chain = []; f.inOr = false; f.afterOOp = false;
     pendingLoad = null;
     return null;
   };
@@ -89,29 +113,46 @@ export function convertNetwork(n: number, title: string, lines: string[]): LadNe
     const { op, arg } = tk;
     if (op in CONTACT) {
       if (!arg) return fail(op + ' without operand');
-      top().chain.push({ kind: CONTACT[op], op: arg });
+      seriesElem({ kind: CONTACT[op], op: arg });
       pendingLoad = null;
       continue;
     }
     if (op === 'O' || op === 'ON') {
-      if (arg) { closeChain(); top().chain.push({ kind: op === 'O' ? 'no' : 'nc', op: arg }); }
-      else closeChain(); // bare O: next chain is a new branch
+      const f = top();
+      if (!f.inOr) { f.branches = [f.chain]; f.chain = []; f.inOr = true; }
+      else { f.branches.push(f.chain); f.chain = []; }
+      if (arg) { f.chain.push({ kind: op === 'O' ? 'no' : 'nc', op: arg }); f.afterOOp = true; }
+      else f.afterOOp = false; // bare O: next chain is a fresh branch
       pendingLoad = null;
       continue;
     }
     if (op === 'AN(' || op === 'ON(') return fail(op + ' (negated group) is not convertible to LAD');
     if (op === 'A(' || op === 'O(') {
-      if (op.startsWith('O')) closeChain();
-      stack.push({ branches: [], chain: [] });
+      const f = top();
+      if (op === 'O(') {
+        // OR with the group that follows: current chain becomes a branch
+        if (!f.inOr) { f.branches = [f.chain]; f.chain = []; f.inOr = true; }
+        else { f.branches.push(f.chain); f.chain = []; }
+        f.afterOOp = false;
+      } else if (f.inOr && f.chain.length > 0 && f.afterOOp) foldOr(f); // AND with the group that follows
+      stack.push({ kind: op === 'A(' ? 'A' : 'O', elems: [], branches: [], chain: [], inOr: false, afterOOp: false });
       pendingLoad = null;
       continue;
     }
     if (op === ')') {
       if (stack.length < 2) return fail(') without matching (');
-      closeChain();
-      const f = stack.pop()!;
-      const g: LadGroup = { kind: 'or', branches: f.branches.length ? f.branches : [[]] };
-      top().chain.push(g);
+      const inner = stack.pop()!;
+      foldOr(inner);
+      const innerElems = inner.elems;
+      if (!innerElems.length) { pendingLoad = null; continue; }
+      const f = top();
+      if (inner.kind === 'A') {
+        // series: AND with the group (a series chain ANDs element by element)
+        f.chain.push(...innerElems);
+      } else {
+        // parallel: the group is another branch of the open OR combination
+        f.branches.push(innerElems);
+      }
       pendingLoad = null;
       continue;
     }
@@ -123,7 +164,7 @@ export function convertNetwork(n: number, title: string, lines: string[]): LadNe
     }
     if (op === 'FP' || op === 'FN') {
       if (!arg) return fail(op + ' without operand');
-      top().chain.push({ kind: op === 'FP' ? 'p' : 'n', op: arg });
+      seriesElem({ kind: op === 'FP' ? 'p' : 'n', op: arg });
       pendingLoad = null;
       continue;
     }
@@ -135,9 +176,8 @@ export function convertNetwork(n: number, title: string, lines: string[]): LadNe
     if (op === 'T') {
       if (pendingLoad != null && arg) {
         // MOVE box: this consumes the whole current logic context; only valid as a standalone rung
-        closeChain();
         const f = top();
-        if (f.branches.length || stack.length !== 1) return fail('L/T inside bit logic (MOVE with logic) is not supported in LAD yet');
+        if (stack.length !== 1 || f.elems.length || f.chain.length || f.inOr) return fail('L/T inside bit logic (MOVE with logic) is not supported in LAD yet');
         rungs.push({ chain: [], out: { kind: 'move', src: pendingLoad, dst: arg } });
         pendingLoad = null;
         continue;
@@ -155,10 +195,11 @@ export function convertNetwork(n: number, title: string, lines: string[]): LadNe
     // everything else is not representable in this MVP
     return fail(op + ' is not convertible to LAD yet');
   }
-  closeChain();
-  const f = top();
+
   if (stack.length !== 1) return fail('unbalanced parentheses');
-  if (f.branches.length || f.chain.length || pendingLoad != null) {
+  const f = top();
+  foldOr(f);
+  if (f.elems.length || pendingLoad != null) {
     if (rungs.length === 0) return fail('network has no output (coil)');
     // trailing logic after the last coil: keep honest
     return fail('logic after the last coil is not supported in LAD yet');
