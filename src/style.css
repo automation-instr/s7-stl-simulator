@@ -149,3 +149,10 @@ body { background: #0b0f14; }
 .mc7-call .mc7-tx { color: #79c0ff; font-weight: 600; }
 .mc7-param .mc7-tx { color: #a5d6a7; }
 .mc7-note .mc7-tx { color: #7d8590; font-style: italic; }
+
+/* LAD view */
+.s7-vtog { display: inline-flex; gap: 4px; margin-right: 6px; }
+.s7-lad { overflow: auto; background: #0d1622; border: 1px solid #22354d; border-radius: 6px; padding: 10px 12px; max-height: 480px; }
+.s7-ladnet { margin-bottom: 14px; }
+.s7-ladtitle { color: #8ea3b8; font: 12px/1.4 ui-monospace, monospace; margin-bottom: 4px; text-transform: none; }
+.s7-ladstl { color: #d7e3f0; font: 12px/1.5 ui-monospace, monospace; background: #111e2e; border-radius: 4px; padding: 8px 10px; margin: 4px 0 0; white-space: pre; overflow-x: auto; }

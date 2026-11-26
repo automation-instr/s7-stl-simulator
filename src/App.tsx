@@ -4,6 +4,8 @@ import { Proj, loadFiles, idbPut, idbGet, idbDel } from './project';
 import { EXAMPLES } from './examples';
 import { BlockSheet, KIND_LABEL } from './BlockSheet';
 import { Mc7Stl } from './Mc7Sheet';
+import { convertAll } from './lad';
+import { LadView } from './LadView';
 const GROUP_NAME: Record<string, string> = { OB: 'Organization blocks', FB: 'Function blocks', FC: 'Functions', DB: 'Data blocks', UDT: 'User data types', SFC: 'System functions', SFB: 'System function blocks', VAT: 'Variable tables' };
 const GROUPS = ['OB', 'FB', 'FC', 'DB', 'UDT', 'SFC', 'SFB', 'VAT'];
 type Row = { key: string; kind: string; num?: number; code?: number; iface?: number; comp?: any; name: string; title: string; blk?: any };
@@ -78,6 +80,7 @@ export function App() {
     const [proj, setProj] = useState<Proj | null>(null);
     const [blk, setBlk] = useState('');
     const [mnemSel, setMnemSel] = useState<'auto' | 'en' | 'de'>('auto');
+    const [viewMode, setViewMode] = useState<'stl' | 'lad'>('stl');
     const [wfilter, setWfilter] = useState('');
     const [wmax, setWmax] = useState(60);
     const [busy, setBusy] = useState(false);
@@ -98,6 +101,7 @@ export function App() {
     };
     const ctx: Ctx = useMemo(() => proj ? { symbols: proj.symbols, dbs: proj.dbs, mnem: mnemSel === 'auto' ? proj.mnem : mnemSel } : { mnem: mnemSel }, [proj, mnemSel]);
     const { prog, errors, skipped, mnem: mnemUsed, virtual } = useMemo(() => compile(text, ctx), [text, ctx]);
+    const ladNets = useMemo(() => convertAll(text), [text]);
     const verdicts = useMemo(() => {
         if (!proj) return [] as any[];
         return proj.blocks.filter(b => b.kind !== 'DATA_BLOCK' && b.kind !== 'TYPE').map(b => {
@@ -225,7 +229,7 @@ export function App() {
 
     return <div className="s7">
         <div className="s7-top">
-            <div className="s7-title">{'S7-300 Simulator (STL)'}<small>{'Siemens STEP 7 Classic | Version 1.5.1'}</small></div>
+            <div className="s7-title">{'S7-300 Simulator (STL)'}<small>{'Siemens STEP 7 Classic | Version 1.6.0'}</small></div>
             <div className={'s7-mode ' + (running ? 'run' : 'stop')}>{running ? 'RUN' : 'STOP'}</div>
         </div>
 
@@ -350,13 +354,22 @@ export function App() {
             </div>}
             {cur && saveMsg && <div className="s7-ok" style={{ marginTop: 0, marginBottom: 8 }}>{saveMsg}</div>}
             <div className="s7-row" style={{ marginTop: 0, marginBottom: 8 }}>
+                <span className="s7-vtog">
+                    <button type="button" className={'s7-chip' + (viewMode === 'stl' ? ' on' : '')} onClick={() => setViewMode('stl')}>{'STL'}</button>
+                    <button type="button" className={'s7-chip' + (viewMode === 'lad' ? ' on' : '')} onClick={() => setViewMode('lad')}>{'LAD'}</button>
+                </span>
                 <select className="s7-sel" value={mnemSel} onChange={e => setMnemSel(e.target.value as any)} aria-label={'Mnemonics'}>
                     <option value="auto">{'Mnemonics: auto ('}{mnemUsed === 'en' ? 'English' : 'Deutsch'})</option>
                     <option value="en">English (SD=on-delay, SE=ext.pulse)</option>
                     <option value="de">Deutsch (SE=on-delay, SV=ext.pulse)</option>
                 </select>
             </div>
-            <div className="s7-ed">
+            {viewMode === 'lad'
+                ? <div className="s7-lad">
+                    {ladNets.map((n, i) => <LadView key={i} net={n} />)}
+                    <div className="s7-hint">{'LAD is view only. Switch to STL to edit.'}</div>
+                </div>
+                : <div className="s7-ed">
                 {curLine > 0 && <div className="s7-bar cur" style={{ top: 8 + (curLine - 1) * LH - scrollTop }} />}
                 {errors.map((e, i) => <div key={i} className="s7-bar err" style={{ top: 8 + (e.line - 1) * LH - scrollTop }} />)}
                 <div className="s7-gut"><div style={{ transform: 'translateY(' + (8 - scrollTop) + 'px)' }}>
@@ -364,7 +377,7 @@ export function App() {
                 </div></div>
                 <textarea className="s7-ta" value={text} spellCheck={false} autoCapitalize="none" autoCorrect="off" wrap="off" dir="ltr" aria-label={'STL editor'}
                     onChange={e => { setText(e.target.value); setExId(''); }} onScroll={e => setScrollTop((e.target as HTMLTextAreaElement).scrollTop)} />
-            </div>
+            </div>}
             {hasErr
                 ? <div className="s7-errs">{errors.slice().sort((a, b) => a.line - b.line).map((e, i) => <div className="s7-err" key={i}><b>{'line'} {e.line}</b> : {e.msg}</div>)}</div>
                 : <div className="s7-ok">{'Program is valid:'} {prog.ins.length} {'instructions. It reloads automatically.'}{skipped.length > 0 ? ' (' + skipped.length + ' CALL(s) skipped)' : ''}</div>}
