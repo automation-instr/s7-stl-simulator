@@ -1,7 +1,7 @@
 import subprocess, json, re, sys
 ver = sys.argv[1] if len(sys.argv)>1 else '1'
 subprocess.check_call(['/usr/lib/node_modules/tsx/node_modules/esbuild/bin/esbuild','src/standalone.tsx','--bundle','--minify','--target=es2019','--define:process.env.NODE_ENV="production"','--outfile=/tmp/pwa/app.js','--log-level=warning'])
-css=open('src/style.css').read(); js=open('app.js').read().replace('</script','<\\/script')
+css=open('src/style.css').read(); js=open('/tmp/pwa/app.js').read().replace('</script','<\\/script')
 html=f'''<!doctype html>
 <html lang="en" dir="ltr">
 <head>
@@ -24,8 +24,8 @@ body{{overscroll-behavior-y:contain;}}
 <body><div id="root"></div>
 <script>{js}</script>
 </body></html>'''
-open('dist/index.html','w').write(html)
-sw=open('dist/sw.js').read()
+open('index.html','w').write(html)
+sw=open('sw.js').read()
 sw=re.sub(r"const V='[^']*'","const V='s7stl-v"+ver+"'",sw)
-open('dist/sw.js','w').write(sw)
+open('sw.js','w').write(sw)
 print('built v'+ver, len(html))

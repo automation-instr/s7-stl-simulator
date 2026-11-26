@@ -773,7 +773,7 @@ export function fmtTimer(t: Timer | undefined) { return t ? (t.rem / 1000).toFix
 // ---------- compiled-only blocks: readable parts of SUBBLK.DBF/DBT ----------
 const DECL_SUB: Record<string, number> = { FC: 5, OB: 3, FB: 4, DB: 6 };
 const CMT_SUB: Record<string, number> = { FC: 19, OB: 17, FB: 18, DB: 20 };
-export type CompInfo = { decl: string; nets: string[]; codeBytes: number };
+export type CompInfo = { decl: string; nets: string[]; codeBytes: number; code?: Uint8Array };
 export function parseCompiled(dbf: Uint8Array, dbt: Uint8Array): Record<number, Record<number, { memo: Record<string, Uint8Array>; len: number }>> {
     const dv = new DataView(dbf.buffer, dbf.byteOffset, dbf.byteLength);
     const hlen = dv.getUint16(8, true), rlen = dv.getUint16(10, true), nrec = dv.getUint32(4, true);
@@ -804,5 +804,8 @@ export function compInfo(kind: string, subs: Record<number, { memo: Record<strin
         }
     }
     const body = subs[({ FC: 12, OB: 8, FB: 14, DB: 10 } as any)[kind]];
-    return { decl, nets, codeBytes: body ? body.len : 0 };
+    let code: Uint8Array | undefined;
+    if (body && body.memo.code.length && body.len > 0 && body.len <= body.memo.code.length) code = body.memo.code.slice(0, body.len);
+    else if (body && body.memo.code.length) code = body.memo.code;
+    return { decl, nets, codeBytes: body ? body.len : 0, code };
 }

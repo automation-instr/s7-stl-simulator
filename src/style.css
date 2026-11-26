@@ -139,3 +139,13 @@ body { background: #0b0f14; }
 
 
 .bv-pre { margin: 0 0 8px; padding: 10px 12px; background: #0b0f14; border: 1px solid #243040; border-radius: 8px; font: 12.5px/1.5 ui-monospace, monospace; white-space: pre-wrap; overflow-wrap: anywhere; color: #cfe0f5; }
+.mc7-stl { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12.5px; line-height: 1.45; overflow-x: auto; padding: 4px 0; }
+.mc7-line { display: flex; gap: 6px; white-space: pre; }
+.mc7-lab { min-width: 44px; color: #7d8590; text-align: right; }
+.mc7-tx { color: #e6edf3; }
+.mc7-cm { color: #7d8590; }
+.mc7-bld .mc7-tx { color: #6e7681; font-size: 11px; }
+.mc7-raw .mc7-tx { color: #f85149; }
+.mc7-call .mc7-tx { color: #79c0ff; font-weight: 600; }
+.mc7-param .mc7-tx { color: #a5d6a7; }
+.mc7-note .mc7-tx { color: #7d8590; font-style: italic; }

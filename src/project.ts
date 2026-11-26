@@ -78,7 +78,7 @@ export async function loadFiles(files: { name: string; data: Uint8Array }[]): Pr
         if (!single) throw new Error('No AWL file or symbol table found in the selection');
         return { kind: 'program', text: single, name: files[0].name };
     }
-    if (blocks.length === 0 && nSym > 0) {
+    if (blocks.length === 0 && nSym > 0 && cats.length === 0) {
         return { kind: 'project', proj: { blocks: [], symbols, dbs: {}, mnem: 'en', files: used, warn, symCount: nSym } };
     }
     const { dbs, warn: w2 } = dbLayouts(blocks);
@@ -89,6 +89,13 @@ export async function loadFiles(files: { name: string; data: Uint8Array }[]): Pr
     // blocks that appear twice (same name): keep the last one
     const seen = new Map<string, number>(); blocks.forEach((b, i) => seen.set(b.kind + ':' + b.name, i));
     const uniq = blocks.filter((b, i) => seen.get(b.kind + ':' + b.name) === i);
+    // layouts for compiled-only DBs: synthesize an AWL DB from the stored declaration text
+    const synth: Block[] = [];
+    for (const c of catalog) {
+        if (c.kind !== 'DB' || !c.comp || !c.comp.decl || dbs[c.num]) continue;
+        synth.push({ kind: 'DATA_BLOCK', name: 'DB' + c.num, num: c.num, db: c.num, text: 'DATA_BLOCK DB ' + c.num + '\n' + c.comp.decl + '\nBEGIN\nEND_DATA_BLOCK' } as Block);
+    }
+    if (synth.length) { const r = dbLayouts(synth); for (const k of Object.keys(r.dbs)) dbs[+k] = r.dbs[+k]; }
     return { kind: 'project', proj: { blocks: uniq, symbols, dbs, mnem: detectMnem(srcs.join('\n')), files: used, warn: warn.concat(w2), symCount: nSym, catalog: catalog.length ? catalog : undefined } };
 }
 

@@ -3,6 +3,7 @@ import { compile, Machine, TIMER_NAME, Ctx } from './engine';
 import { Proj, loadFiles, idbPut, idbGet, idbDel } from './project';
 import { EXAMPLES } from './examples';
 import { BlockSheet, KIND_LABEL } from './BlockSheet';
+import { Mc7Stl } from './Mc7Sheet';
 const GROUP_NAME: Record<string, string> = { OB: 'Organization blocks', FB: 'Function blocks', FC: 'Functions', DB: 'Data blocks', UDT: 'User data types', SFC: 'System functions', SFB: 'System function blocks', VAT: 'Variable tables' };
 const GROUPS = ['OB', 'FB', 'FC', 'DB', 'UDT', 'SFC', 'SFB', 'VAT'];
 type Row = { key: string; kind: string; num?: number; code?: number; iface?: number; comp?: any; name: string; title: string; blk?: any };
@@ -224,7 +225,7 @@ export function App() {
 
     return <div className="s7">
         <div className="s7-top">
-            <div className="s7-title">{'S7-300 Simulator (STL)'}<small>{'Siemens STEP 7 Classic | Version 1.4.0'}</small></div>
+            <div className="s7-title">{'S7-300 Simulator (STL)'}<small>{'Siemens STEP 7 Classic | Version 1.5.0'}</small></div>
             <div className={'s7-mode ' + (running ? 'run' : 'stop')}>{running ? 'RUN' : 'STOP'}</div>
         </div>
 
@@ -327,7 +328,8 @@ export function App() {
                     <div className="bv-meta">
                         {r.code ? <span><u>Code</u> {fmtD(r.code)}</span> : null}{r.iface ? <span><u>Interface</u> {fmtD(r.iface)}</span> : null}{c.codeBytes ? <span><u>Code size</u> {c.codeBytes} bytes</span> : null}
                     </div>
-                    <div className="s7-hint" style={{ margin: '8px 0' }}>{'Compiled block. The project files hold its instructions in compiled form and they are not decoded yet, so only the parts below are shown. Everything here is read directly from the project.'}</div>
+                    {c.code && c.code.length ? <Mc7Stl proj={proj} kind={r.kind} num={r.num!} comp={c} /> :
+                        <div className="s7-hint" style={{ margin: '8px 0' }}>{'Compiled block. The project files hold its instructions in compiled form and they are not decoded yet, so only the parts below are shown. Everything here is read directly from the project.'}</div>}
                     {c.decl && <div><div className="s7-h">{'Declarations'}</div><pre className="bv-pre">{c.decl}</pre></div>}
                     {c.nets && c.nets.length > 0 && <div><div className="s7-h">{'Network titles'}<span>{c.nets.length}</span></div>
                         {c.nets.map((t: string, i: number) => <div className="bv-nh" key={i}><b>{'Network'} {i + 1}</b>{t ? <span>{t}</span> : <span style={{ opacity: .5 }}>{'(no title)'}</span>}</div>)}
