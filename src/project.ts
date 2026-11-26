@@ -1,8 +1,8 @@
 /* eslint-disable */
-import { Block, DbLayout, splitBlocks, dbLayouts, parseSymList, parseSymText, detectMnem, parseSymInfo, parseBlockCatalog, parseBlockDates, parseCompiled, compInfo } from './engine';
+import { Block, DbLayout, splitBlocks, dbLayouts, layoutDecls, parseSymList, parseSymText, detectMnem, parseSymInfo, parseBlockCatalog, parseBlockDates, parseCompiled, compInfo } from './engine';
 
 export type Proj = {
-    blocks: Block[]; symbols: Record<string, string>; dbs: Record<number, DbLayout>;
+    blocks: Block[]; symbols: Record<string, string>; dbs: Record<number, DbLayout>; udts?: Record<number, DbLayout>;
     mnem: 'en' | 'de'; files: string[]; warn: string[]; symCount: number;
     catalog?: { kind: string; num: number; name: string; comment: string; code?: number; iface?: number; comp?: any }[];
 };
@@ -81,7 +81,6 @@ export async function loadFiles(files: { name: string; data: Uint8Array }[]): Pr
     if (blocks.length === 0 && nSym > 0 && cats.length === 0) {
         return { kind: 'project', proj: { blocks: [], symbols, dbs: {}, mnem: 'en', files: used, warn, symCount: nSym } };
     }
-    const { dbs, warn: w2 } = dbLayouts(blocks);
     const KL: Record<string, string> = { FUNCTION: 'FC', FUNCTION_BLOCK: 'FB', ORGANIZATION_BLOCK: 'OB', DATA_BLOCK: 'DB', TYPE: 'UDT' };
     for (const b of blocks) { if (b.db) { b.num = b.db; continue; } const m = /^(FC|FB|OB|UDT)\s*(\d+)$/i.exec(b.name) || /^(FC|FB|OB|UDT)\s*(\d+)$/i.exec(symbols[b.name.toUpperCase()] || ''); if (m) b.num = +m[2]; else { const a = Object.keys(info).find(k => info[k].name.toUpperCase() === b.name.toUpperCase() && k.startsWith(KL[b.kind] || '??')); if (a) b.num = +a.replace(/\D/g, ''); } }
     for (const k of Object.keys(subf)) { if (!/dbf$/.test(k)) continue; const dir = k.replace(/[^\\/]+$/, ''); try { dates[dir] = parseBlockDates(subf[k]); const dbt = subf[k.replace(/dbf$/, 'dbt')]; if (dbt) comps[dir] = parseCompiled(subf[k], dbt); } catch { } }
@@ -89,14 +88,30 @@ export async function loadFiles(files: { name: string; data: Uint8Array }[]): Pr
     // blocks that appear twice (same name): keep the last one
     const seen = new Map<string, number>(); blocks.forEach((b, i) => seen.set(b.kind + ':' + b.name, i));
     const uniq = blocks.filter((b, i) => seen.get(b.kind + ':' + b.name) === i);
+    // UDT layouts from the stored UDT declarations (iterative: UDTs may nest)
+    const udtDecls: Record<number, string> = {};
+    for (const c of catalog) if (c.kind === 'UDT' && c.comp && c.comp.decl) udtDecls[c.num] = c.comp.decl;
+    const udtLayouts: Record<number, DbLayout> = {};
+    for (let pass = 0; pass < 8 && Object.keys(udtLayouts).length < Object.keys(udtDecls).length; pass++) {
+        for (const k of Object.keys(udtDecls)) {
+            const n = +k; if (udtLayouts[n]) continue;
+            const ls = udtDecls[n].split('\n'); const a = ls.findIndex(l => /^\s*STRUCT\b/i.test(l)); let z = -1; for (let i = ls.length - 1; i > a && a >= 0; i--) if (/^\s*END_STRUCT\b/i.test(ls[i])) { z = i; break; }
+            if (a < 0 || z < 0) { udtLayouts[n] = { size: 0, fields: {} }; continue; }
+            const r = layoutDecls(ls.slice(a + 1, z), udtLayouts);
+            // wait for nested UDTs that are not resolved yet (error names one)
+            if (r.errors.some(e => e.startsWith('Unknown UDT'))) continue;
+            udtLayouts[n] = { size: r.size, fields: r.fields };
+        }
+    }
+    const { dbs, warn: w2 } = dbLayouts(blocks, udtLayouts);
     // layouts for compiled-only DBs: synthesize an AWL DB from the stored declaration text
     const synth: Block[] = [];
     for (const c of catalog) {
         if (c.kind !== 'DB' || !c.comp || !c.comp.decl || dbs[c.num]) continue;
         synth.push({ kind: 'DATA_BLOCK', name: 'DB' + c.num, num: c.num, db: c.num, text: 'DATA_BLOCK DB ' + c.num + '\n' + c.comp.decl + '\nBEGIN\nEND_DATA_BLOCK' } as Block);
     }
-    if (synth.length) { const r = dbLayouts(synth); for (const k of Object.keys(r.dbs)) dbs[+k] = r.dbs[+k]; }
-    return { kind: 'project', proj: { blocks: uniq, symbols, dbs, mnem: detectMnem(srcs.join('\n')), files: used, warn: warn.concat(w2), symCount: nSym, catalog: catalog.length ? catalog : undefined } };
+    if (synth.length) { const r = dbLayouts(synth, udtLayouts); for (const k of Object.keys(r.dbs)) dbs[+k] = r.dbs[+k]; }
+    return { kind: 'project', proj: { blocks: uniq, symbols, dbs, udts: Object.keys(udtLayouts).length ? udtLayouts : undefined, mnem: detectMnem(srcs.join('\n')), files: used, warn: warn.concat(w2), symCount: nSym, catalog: catalog.length ? catalog : undefined } };
 }
 
 // ---- IndexedDB persistence for the (large) project

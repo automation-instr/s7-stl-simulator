@@ -129,7 +129,7 @@ function parseConst(s: string): { v: number; kind: string } | string {
 const stripC = (l: string) => l.replace(/\/\/.*$/, '').replace(/\(\*.*?\*\)/g, '');
 const TYPE_SZ: Record<string, number> = { BYTE: 1, CHAR: 1, INT: 2, WORD: 2, DATE: 2, S5TIME: 2, DINT: 4, DWORD: 4, REAL: 4, TIME: 4, TIME_OF_DAY: 4, TOD: 4, DATE_AND_TIME: 8, DT: 8 };
 // STEP 7 layout: BOOLs pack into bits, BYTE/CHAR sit on the next byte, everything bigger on an even byte.
-export function layoutDecls(lines: string[]): DbLayout & { errors: string[] } {
+export function layoutDecls(lines: string[], udts?: Record<number, DbLayout>): DbLayout & { errors: string[] } {
     const fields: Record<string, Field> = {}; const errors: string[] = [];
     let byte = 0, bit = 0; // bit>0 means inside a byte of bools
     const pre: string[] = [];
@@ -141,8 +141,24 @@ export function layoutDecls(lines: string[]): DbLayout & { errors: string[] } {
         if (!m) continue;
         if (/^STRUCT\b/i.test(m[2])) { align(); pre.push(m[1].toUpperCase()); continue; }
         const name = (pre.length ? pre.join('.') + '.' : '') + m[1].toUpperCase(); let ty = m[2].replace(/;$/, '').trim().toUpperCase(); let n = 1;
-        const am = /^ARRAY\s*\[\s*(-?\d+)\s*\.\.\s*(-?\d+)\s*\]\s*OF\s+(\w+)/.exec(ty);
+        const am = /^ARRAY\s*\[\s*(-?\d+)\s*\.\.\s*(-?\d+)\s*\]\s*OF\s+(UDT\s*\d+|\w+)/.exec(ty);
         if (am) { n = +am[2] - +am[1] + 1; ty = am[3]; }
+        // UDT member: inline the UDT's fields under this name (once per array element)
+        const um = /^UDT\s*(\d+)$/.exec(ty);
+        if (um) {
+            const u = udts && udts[+um[1]];
+            if (!u) { errors.push('Unknown UDT: ' + ty + ' (' + name + ')'); continue; }
+            for (let k = 0; k < n; k++) {
+                align();
+                const pfx = am ? name + '[' + (+am[1] + k) + '].' : name + '.';
+                for (const fn of Object.keys(u.fields)) {
+                    const uf = u.fields[fn];
+                    fields[pfx + fn] = { off: byte + uf.off, bit: uf.bit, type: uf.type, len: uf.len };
+                }
+                byte += u.size;
+            }
+            continue;
+        }
         const sm = /^STRING\s*\[\s*(\d+)\s*\]/.exec(ty);
         let sz: number, isBool = false;
         if (ty === 'BOOL') { isBool = true; sz = 0; }
@@ -182,13 +198,13 @@ export function splitBlocks(src: string): Block[] {
     return out;
 }
 // DB layouts from DATA_BLOCK sources (STRUCT ... END_STRUCT)
-export function dbLayouts(blocks: Block[]): { dbs: Record<number, DbLayout>; warn: string[] } {
+export function dbLayouts(blocks: Block[], udts?: Record<number, DbLayout>): { dbs: Record<number, DbLayout>; warn: string[] } {
     const dbs: Record<number, DbLayout> = {}; const warn: string[] = [];
     for (const b of blocks) {
         if (b.kind !== 'DATA_BLOCK' || !b.db) continue;
         const ls = b.text.split('\n'); const a = ls.findIndex(l => /^\s*STRUCT\b/i.test(l)); let z = -1; for (let i = ls.length - 1; i > a && a >= 0; i--) if (/^\s*END_STRUCT\b/i.test(ls[i])) { z = i; break; }
         if (a < 0 || z < 0) { warn.push('DB' + b.db + ': no STRUCT found'); continue; }
-        const r = layoutDecls(ls.slice(a + 1, z));
+        const r = layoutDecls(ls.slice(a + 1, z), udts);
         dbs[b.db] = { size: r.size, fields: r.fields }; r.errors.forEach(e => warn.push('DB' + b.db + ': ' + e));
     }
     return { dbs, warn };
@@ -771,7 +787,7 @@ export function fmtTimer(t: Timer | undefined) { return t ? (t.rem / 1000).toFix
 
 
 // ---------- compiled-only blocks: readable parts of SUBBLK.DBF/DBT ----------
-const DECL_SUB: Record<string, number> = { FC: 5, OB: 3, FB: 4, DB: 6 };
+const DECL_SUB: Record<string, number> = { FC: 5, OB: 3, FB: 4, DB: 6, UDT: 1 };
 const CMT_SUB: Record<string, number> = { FC: 19, OB: 17, FB: 18, DB: 20 };
 export type CompInfo = { decl: string; nets: string[]; codeBytes: number; code?: Uint8Array };
 export function parseCompiled(dbf: Uint8Array, dbt: Uint8Array): Record<number, Record<number, { memo: Record<string, Uint8Array>; len: number }>> {
