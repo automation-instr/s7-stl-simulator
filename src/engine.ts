@@ -48,7 +48,54 @@ const f32 = (bits: number) => new Float32Array(new Uint32Array([bits >>> 0]).buf
 const bitsOf = (x: number) => new Uint32Array(new Float32Array([x]).buffer)[0] >>> 0;
 
 // ---------- operand parsing ----------
-type Addr = { area: string; byte: number; bit?: number; size?: string; n?: number };
+type Addr = { area: string; byte: number; bit?: number; size?: string; n?: number; db?: number; reg?: string; arInd?: { ar: number; byte: number; bit: number }; memInd?: Addr; memNum?: Addr };
+
+// pointer (P#) and indirect-address helpers
+const PTR_AREA_CODE: Record<string, number> = { I: 0x81, Q: 0x82, M: 0x83, DB: 0x84, DI: 0x85, L: 0x86 };
+const PTR_CODE_AREA: Record<number, { area: string; reg?: string }> = { 1: { area: 'I' }, 2: { area: 'Q' }, 3: { area: 'M' }, 4: { area: 'DB' }, 5: { area: 'DB', reg: 'DI' }, 6: { area: 'L' } };
+// P#2.0 (area-internal) or P#M 4.0 / P#DBX 1.0 / P#DIX 2.0 (area-crossing); returns the 32-bit pointer word
+function parsePointer(s: string): number | string {
+    let m = /^P#\s*(\d+)\s*\.\s*(\d)$/i.exec(s.trim());
+    if (m) { if (+m[2] > 7) return 'bit'; return (((+m[1]) << 3) | (+m[2])) >>> 0; }
+    m = /^P#\s*(DBX|DIX|I|E|Q|A|M|L)\s*(\d+)\s*\.\s*(\d)$/i.exec(s.trim());
+    if (!m) return 'bad';
+    if (+m[3] > 7) return 'bit';
+    const a = { DBX: 'DB', DIX: 'DI', I: 'I', E: 'I', Q: 'Q', A: 'Q', M: 'M', L: 'L' }[m[1].toUpperCase()] as string;
+    return (0x80000000 | (PTR_AREA_CODE[a] << 24) | ((+m[2]) << 3) | (+m[3])) >>> 0;
+}
+// Indirect address: 'I [AR1,P#0.0]', 'IB [AR1,P#2.0]', 'MW [MD 0]', 'DBX [AR2,P#0.0]', 'IW [LD 4]', 'T DBW [DBD 8]'
+function parseIndirect(s: string, mode: 'bit' | 'num'): Addr | string {
+    const m = /^([A-Za-z]*)\s*\[\s*(.+?)\s*\]$/.exec(s.trim());
+    if (!m) return 'bad';
+    const p = m[1].toUpperCase(), inner = m[2];
+    let a: Addr;
+    if (mode === 'bit') {
+        const am: Record<string, Addr> = { I: { area: 'I', byte: 0, bit: 0 }, E: { area: 'I', byte: 0, bit: 0 }, Q: { area: 'Q', byte: 0, bit: 0 }, A: { area: 'Q', byte: 0, bit: 0 }, M: { area: 'M', byte: 0, bit: 0 }, L: { area: 'L', byte: 0, bit: 0 }, DB: { area: 'DB', byte: 0, bit: 0 }, DBX: { area: 'DB', byte: 0, bit: 0 }, DI: { area: 'DB', reg: 'DI', byte: 0, bit: 0 }, DIX: { area: 'DB', reg: 'DI', byte: 0, bit: 0 } };
+        if (p === '') a = { area: 'M', byte: 0, bit: 0 }; // area comes from the pointer
+        else if (!am[p]) return 'bad';
+        else a = am[p];
+    } else {
+        const so = /^(B|W|D)$/.exec(p);
+        if (so) { a = { area: 'M', byte: 0, size: so[1] }; } // area comes from the pointer
+        const w = so ? null : /^(PI|PE|PQ|PA|DB|DI|I|E|Q|A|M|L)(B|W|D)$/i.exec(p);
+        if (!so && !w) return 'bad';
+        if (so) {
+            let im2 = /^AR([12])\s*,\s*P#\s*(\d+)\s*\.\s*(\d)$/i.exec(inner);
+            if (im2) { if (+im2[3] > 7) return 'bit'; a.arInd = { ar: +im2[1], byte: +im2[2], bit: +im2[3] }; return a; }
+            im2 = /^(M|L|DB)(D)\s*(\d+)$/i.exec(inner);
+            if (im2) { a.memInd = { area: im2[1].toUpperCase(), byte: +im2[3], size: 'D' }; return a; }
+            return 'bad';
+        }
+        const pa = w[1].toUpperCase();
+        const area = { I: 'I', E: 'I', Q: 'Q', A: 'Q', M: 'M', L: 'L', PI: 'PI', PE: 'PI', PQ: 'PQ', PA: 'PQ' }[pa];
+        a = area ? { area, byte: 0, size: w[2].toUpperCase() } : { area: 'DB', reg: pa === 'DI' ? 'DI' : undefined, byte: 0, size: w[2].toUpperCase() };
+    }
+    let im = /^AR([12])\s*,\s*P#\s*(\d+)\s*\.\s*(\d)$/i.exec(inner);
+    if (im) { if (+im[3] > 7) return 'bit'; a.arInd = { ar: +im[1], byte: +im[2], bit: +im[3] }; return a; }
+    im = /^(M|L|DB)(D)\s*(\d+)$/i.exec(inner);
+    if (im) { a.memInd = { area: im[1].toUpperCase(), byte: +im[3], size: 'D' }; return a; }
+    return 'bad';
+}
 
 function parseBitAddr(s: string): Addr | string {
     const m = /^([IEQAML])(\d+)\.(\d+)$/i.exec(s);
@@ -376,7 +423,7 @@ export function compile(src: string, ctx: Ctx = {}): { prog: Program; errors: Er
             ins.push({ op: 'CALLSKIP', line: ln, text: t.length > 70 ? t.slice(0, 70) + '…' : t, label });
             return;
         }
-        const mm = /^(==[IDR]|<>[IDR]|>=[IDR]|<=[IDR]|>[IDR]|<[IDR]|[+\-*\/][IDR]|RND[+\-]|=|\+|\)|[A-Za-z_][A-Za-z0-9_]*)\s*(.*)$/.exec(t);
+        const mm = /^(==[IDR]|<>[IDR]|>=[IDR]|<=[IDR]|>[IDR]|<[IDR]|[+\-*\/][IDR]|RND[+\-]|\+AR[12]|=|\+|\)|[A-Za-z_][A-Za-z0-9_]*)\s*(.*)$/i.exec(t);
         if (!mm) { E(ln, 'Cannot parse this line: "' + t + '"'); return; }
         let op = mm[1].toUpperCase();
         const nErr = errors.length;
@@ -413,6 +460,11 @@ export function compile(src: string, ctx: Ctx = {}): { prog: Program; errors: Er
                 if (op === 'S' && kind === 'C') { push({ area: kind, n }); return; }
                 E(ln, 'Instruction ' + op + ' cannot be used on a ' + (kind === 'T' ? 'timer' : 'counter') + '. Use ' + (kind === 'T' ? 'SE / SI / SS / SV / SA or R' : 'ZV / ZR / S / R')); return;
             }
+            if (rest.indexOf('[') >= 0) {
+                const ia = parseIndirect(rest, 'bit');
+                if (typeof ia === 'string') { E(ln, ia === 'bit' ? 'Bit number must be 0 to 7 in "' + rest + '"' : 'Address "' + rest + '" is invalid. Valid indirect forms: A I [AR1,P#0.0], A M [MD 0], A DBX [AR2,P#0.0]'); return; }
+                push(ia); return;
+            }
             const da = parseDbAddr(rest, 'bit');
             if (da) { if (typeof da === 'string') { E(ln, DBERR[da]); return; } push(da); return; }
             const a = parseBitAddr(rest);
@@ -433,6 +485,17 @@ export function compile(src: string, ctx: Ctx = {}): { prog: Program; errors: Er
         }
         if (op === 'L' || op === 'T') {
             if (!rest) { E(ln, 'Instruction ' + op + ' needs an address' + (op === 'L' ? ' or a constant (e.g. L 5 or L MW10)' : ' (e.g. T MW10)')); return; }
+            if (rest.indexOf('[') >= 0) {
+                const ia = parseIndirect(rest, 'num');
+                if (typeof ia === 'string') { E(ln, ia === 'bit' ? 'Bit number must be 0 to 7 in "' + rest + '"' : 'Address "' + rest + '" is invalid. Valid indirect forms: L IB [AR1,P#0.0], L IW [MD 0], T DBW [AR2,P#2.0]'); return; }
+                if (op === 'T' && (ia.area === 'I' || ia.area === 'PI')) { E(ln, 'T cannot write to an input'); return; }
+                push(ia); return;
+            }
+            if (op === 'L' && /^P#/i.test(rest)) {
+                const p = parsePointer(rest);
+                if (typeof p === 'string') { E(ln, p === 'bit' ? 'Bit number must be 0 to 7 in "' + rest + '"' : 'Cannot parse pointer "' + rest + '". Examples: L P#2.0, L P#M 4.0, L P#DBX 1.0'); return; }
+                push({ area: 'K', v: p, kind: 'D' }); return;
+            }
             const dn = parseDbAddr(rest, 'num');
             if (dn) { if (typeof dn === 'string') { E(ln, DBERR[dn]); return; } push(dn); return; }
             const m = /^(PI|PE|PQ|PA|[IEQAML])([BWD])(\d+)$/i.exec(rest);
@@ -462,6 +525,8 @@ export function compile(src: string, ctx: Ctx = {}): { prog: Program; errors: Er
         }
         if (op === 'BEB') { push(); return; }
         if (op === 'OPN') {
+            const omi = /^(DB|DI)\s*\[\s*(M|L|DB)W\s*(\d+)\s*\]$/i.exec(rest);
+            if (omi) { push({ reg: omi[1].toUpperCase(), memNum: { area: omi[2].toUpperCase(), byte: +omi[3], size: 'W' } }); return; }
             const om = /^(DB|DI)(\d+)$/i.exec(rest);
             if (!om || +om[2] < 1 || +om[2] > 65535) { E(ln, 'OPN needs DB or DI with a number from 1 to 65535 (e.g. OPN DB1)'); return; }
             push({ reg: om[1].toUpperCase(), n: +om[2] }); return;
@@ -490,6 +555,35 @@ export function compile(src: string, ctx: Ctx = {}): { prog: Program; errors: Er
             if (!/^\d+$/.test(rest) || +rest > 255) { E(ln, op + ' needs a number from 0 to 255'); return; }
             push(+rest); return;
         }
+        const arm = /^(LAR|TAR)([12])$/i.exec(op);
+        if (arm) {
+            const isLoad = arm[1].toUpperCase() === 'LAR', tgt = +arm[2];
+            if (!rest) { push({ arOp: 'acc' }); return; }
+            if (/^AR([12])$/i.test(rest)) {
+                const srcAr = +/^AR([12])$/i.exec(rest)![1];
+                if (!(isLoad && tgt === 1 && srcAr === 2) && !(!isLoad && tgt === 1 && srcAr === 2)) { E(ln, op + ' only takes AR2 as a register operand when the target is AR1 (e.g. LAR1 AR2)'); return; }
+                push({ arOp: 'ar' }); return;
+            }
+            if (isLoad && /^P#/i.test(rest)) {
+                const p = parsePointer(rest);
+                if (typeof p === 'string') { E(ln, p === 'bit' ? 'Bit number must be 0 to 7 in "' + rest + '"' : 'Cannot parse pointer "' + rest + '". Examples: LAR1 P#2.0, LAR1 P#M 4.0'); return; }
+                push({ arOp: 'const', v: p }); return;
+            }
+            const mm = /^(M|L|DB)D\s*(\d+)$/i.exec(rest);
+            if (mm) { push({ arOp: 'mem', memInd: { area: mm[1].toUpperCase(), byte: +mm[2], size: 'D' } }); return; }
+            E(ln, op + (isLoad ? ' takes no operand (ACCU1), AR2, a pointer (P#2.0) or a double word (MD 0, LD 4, DBD 8)' : ' takes no operand (ACCU1), AR2 or a double word (MD 0, LD 4, DBD 8)'));
+            return;
+        }
+        if (op === 'CAR') { if (rest) { E(ln, 'CAR takes no operand'); return; } push(); return; }
+        if (op === '+AR1' || op === '+AR2') {
+            if (!rest) { push({ arOp: 'acc' }); return; }
+            if (/^P#/i.test(rest)) {
+                const p = parsePointer(rest);
+                if (typeof p === 'string') { E(ln, 'Cannot parse pointer "' + rest + '". Example: ' + op + ' P#1.0'); return; }
+                push({ arOp: 'const', v: p }); return;
+            }
+            E(ln, op + ' takes no operand (ACCU1-L) or a pointer constant (e.g. ' + op + ' P#1.0)'); return;
+        }
         if (UNSUPPORTED.includes(op)) { E(ln, 'Instruction ' + op + ' is not supported yet'); return; }
         E(ln, 'Instruction "' + mm[1] + '" is not recognized. Try A, AN, O, =, S, R, L, T, SD, JC ...');
     });
@@ -517,6 +611,7 @@ export class Machine {
     timers: Record<number, Timer> = {};
     counters: Record<number, Counter> = {};
     acc1 = 0; acc2 = 0;
+    ar1 = 0; ar2 = 0; // address registers: raw 32-bit pointer words
     RLO = false; STA = false;
     OV = false; OS = false; CC0 = false; CC1 = false; UO = false;
     fresh = true; acc = false; rlo = false; newTerm = false;
@@ -533,7 +628,7 @@ export class Machine {
     reset() {
         this.PII.fill(0); this.Q.fill(0); this.M.fill(0); this.PQ.fill(0); this.Lm.fill(0); this.BR = false;
         this.timers = {}; this.counters = {}; this.dbs = {}; this.dbReg = 0; this.diReg = 0;
-        this.acc1 = this.acc2 = 0; this.RLO = false; this.STA = false;
+        this.acc1 = this.acc2 = 0; this.ar1 = this.ar2 = 0; this.RLO = false; this.STA = false;
         this.OV = this.OS = this.CC0 = this.CC1 = this.UO = false;
         this.pc = 0; this.inScan = false; this.scans = 0; this.lastScanMs = 0; this.error = '';
         this.resetChain();
@@ -551,19 +646,48 @@ export class Machine {
         }
         return a.area === 'I' ? this.PII : a.area === 'Q' ? this.Q : a.area === 'L' ? this.Lm : a.area === 'PI' ? this.PI : a.area === 'PQ' ? this.PQ : this.M;
     }
-    getBit(a: Addr) { if (a.byte >= this.arr(a).length) throw new Error('Address is outside the open DB size'); return ((this.arr(a)[a.byte] >> a.bit!) & 1) === 1; }
+    // register-indirect ([AR1,P#..]) and memory-indirect ([MD ..]) address resolution
+    resolve(a: Addr): Addr {
+        if (a.arInd) {
+            const ar = (a.arInd.ar === 1 ? this.ar1 : this.ar2) >>> 0;
+            let area = a.area, reg = a.reg, db = a.db, offByte: number, offBit: number;
+            if (ar & 0x80000000) {
+                const t = PTR_CODE_AREA[(ar >>> 24) & 0x7f];
+                if (!t) throw new Error('Address register AR' + a.arInd.ar + ' points to an unknown area');
+                area = t.area; reg = t.reg; db = undefined;
+            }
+            offByte = (ar >>> 3) & 0xffff; offBit = ar & 7;
+            const total = offByte * 8 + offBit + a.arInd.byte * 8 + a.arInd.bit;
+            const r: Addr = { area, byte: total >> 3, reg, db };
+            if (a.bit !== undefined) r.bit = total & 7;
+            if (a.size) r.size = a.size;
+            return r;
+        }
+        if (a.memInd) {
+            const p = this.readN({ ...a.memInd, size: 'D' });
+            const r: Addr = { area: a.area, byte: (p >>> 3) & 0xffff, reg: a.reg, db: a.db };
+            if (a.bit !== undefined) r.bit = p & 7;
+            if (a.size) r.size = a.size;
+            return r;
+        }
+        return a;
+    }
+    getBit(a: Addr) { a = this.resolve(a); if (a.byte >= this.arr(a).length) throw new Error('Address is outside the open DB size'); return ((this.arr(a)[a.byte] >> a.bit!) & 1) === 1; }
     setBit(a: Addr, v: boolean) {
+        a = this.resolve(a);
         const m = this.arr(a);
         if (v) m[a.byte] |= 1 << a.bit!; else m[a.byte] &= ~(1 << a.bit!);
         if (a.area === 'I') { if (v) this.I[a.byte] |= 1 << a.bit!; else this.I[a.byte] &= ~(1 << a.bit!); }
     }
     readN(a: Addr) {
+        a = this.resolve(a);
         const m = this.arr(a); const n = a.size === 'B' ? 1 : a.size === 'W' ? 2 : 4;
         if (a.byte + n > m.length) throw new Error('Address is outside the open DB size');
         let v = 0; for (let i = 0; i < n; i++) v = (v * 256) + m[a.byte + i];
         return v >>> 0;
     }
     writeN(a: Addr, v: number) {
+        a = this.resolve(a);
         const m = this.arr(a); const n = a.size === 'B' ? 1 : a.size === 'W' ? 2 : 4;
         if (a.byte + n > m.length) throw new Error('Address is outside the open DB size');
         for (let i = 0; i < n; i++) m[a.byte + i] = (v >>> (8 * (n - 1 - i))) & 255;
@@ -709,7 +833,30 @@ export class Machine {
                 else this.acc1 = ((this.acc1 & 0xffff0000) | ((s16(this.acc1) + s16(a.v)) & 0xffff)) >>> 0;
             } else if (op === 'INC') this.acc1 = ((this.acc1 & 0xffffff00) | (((this.acc1 & 255) + a) & 255)) >>> 0;
             else if (op === 'DEC') this.acc1 = ((this.acc1 & 0xffffff00) | (((this.acc1 & 255) - a) & 255)) >>> 0;
-            else if (op === 'OPN') { if (a.reg === 'DB') this.dbReg = a.n; else this.diReg = a.n; }
+            else if (op === 'OPN') {
+                if (a.memNum) { const n = this.readN({ ...a.memNum }); if (n < 1) throw new Error('OPN got a ' + (a.reg === 'DI' ? 'DI' : 'DB') + ' number of 0 from memory'); if (a.reg === 'DB') this.dbReg = n; else this.diReg = n; }
+                else if (a.reg === 'DB') this.dbReg = a.n; else this.diReg = a.n;
+            }
+            else if (op === 'LAR1' || op === 'LAR2') {
+                const tgt = op === 'LAR1' ? 1 : 2; let v: number;
+                if (a.arOp === 'acc') v = this.acc1 >>> 0;
+                else if (a.arOp === 'ar') v = this.ar2 >>> 0;
+                else if (a.arOp === 'const') v = a.v >>> 0;
+                else v = this.readN({ ...a.memInd, size: 'D' });
+                if (tgt === 1) this.ar1 = v; else this.ar2 = v;
+            }
+            else if (op === 'TAR1' || op === 'TAR2') {
+                const v = (op === 'TAR1' ? this.ar1 : this.ar2) >>> 0;
+                if (a.arOp === 'acc') this.acc1 = v;
+                else if (a.arOp === 'ar') this.ar2 = v;
+                else this.writeN({ ...a.memInd, size: 'D' }, v);
+            }
+            else if (op === 'CAR') { const t = this.ar1; this.ar1 = this.ar2; this.ar2 = t; }
+            else if (op === '+AR1' || op === '+AR2') {
+                const add = a.arOp === 'const' ? a.v : s16(this.acc1 & 0xffff);
+                if (op === '+AR1') this.ar1 = ((this.ar1 & 0xff000000) | (((this.ar1 & 0xffffff) + add) & 0xffffff)) >>> 0;
+                else this.ar2 = ((this.ar2 & 0xff000000) | (((this.ar2 & 0xffffff) + add) & 0xffffff)) >>> 0;
+            }
             else if (op === 'SPA') next = this.prog.labels[a];
             else if (op === 'SPB' || op === 'SPBN') {
                 const r = this.RLO_now(); const jump = op === 'SPB' ? r : !r;
