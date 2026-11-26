@@ -14,11 +14,13 @@ export type Block = { kind: string; name: string; text: string; line0: number; d
 const BITOPS = ['A', 'AN', 'O', 'ON', 'X', 'XN'];
 const ALIAS: Record<string, string> = {
     U: 'A', UN: 'AN', JU: 'SPA', JC: 'SPB', JCN: 'SPBN', CU: 'ZV', CD: 'ZR',
+    SPO: 'JO', SPS: 'JOS', UO: 'JUO', SPZ: 'JZ', SPN: 'JN', SPP: 'JP', SPM: 'JM', SPPZ: 'JPZ', SPMZ: 'JMZ',
     S_ODT: 'SE', S_PULSE: 'SI', S_ODTS: 'SS', S_PEXT: 'SV', S_OFFDT: 'SA', BEC: 'BEB', CLR: 'CLR', AUF: 'OPN',
 };
 const EN_TIMER: Record<string, string> = { SE: 'SV', SD: 'SE', SP: 'SI', SF: 'SA' };
 export const TIMER_NAME: Record<string, string> = { SE: 'S_ODT', SI: 'S_PULSE', SS: 'S_ODTS', SV: 'S_PEXT', SA: 'S_OFFDT' };
 const TIMER_OPS = ['SE', 'SI', 'SS', 'SV', 'SA'];
+const CCJUMPS = ['JO', 'JOS', 'JUO', 'JZ', 'JN', 'JP', 'JM', 'JPZ', 'JMZ'];
 const UNSUPPORTED = ['CALL', 'CC', 'UC', 'LC', 'LOOP', 'POP', 'PUSH', 'RLDA', 'RRDA', 'MCR(', 'DI', 'DO', 'TAW', 'TAD', 'CDB', 'OPN_'];
 const SIMPLE = ['TAK', 'ITD', 'DTR', 'RND', 'RND+', 'RND-', 'TRUNC', 'NEGI', 'NEGD', 'NEGR', 'ABS', 'INVI', 'INVD', 'CAW', 'CAD', 'SQRT', 'SQR', 'EXP', 'LN', 'SIN', 'COS', 'TAN', 'ASIN', 'ACOS', 'ATAN', 'MOD'];
 const SHIFT = ['SLW', 'SRW', 'SLD', 'SRD', 'SSI', 'SSD', 'RLD', 'RRD'];
@@ -454,7 +456,7 @@ export function compile(src: string, ctx: Ctx = {}): { prog: Program; errors: Er
             }
             E(ln, 'Address "' + rest + '" is invalid. Examples: T MW10, T QB0'); return;
         }
-        if (op === 'SPA' || op === 'SPB' || op === 'SPBN' || op === 'JNB' || op === 'JBI' || op === 'JNBI') {
+        if (op === 'SPA' || op === 'SPB' || op === 'SPBN' || op === 'JNB' || op === 'JBI' || op === 'JNBI' || CCJUMPS.includes(op)) {
             if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(rest)) { E(ln, op + ' needs a label name (e.g. ' + op + ' M001)'); return; }
             push(rest.toUpperCase()); return;
         }
@@ -493,7 +495,7 @@ export function compile(src: string, ctx: Ctx = {}): { prog: Program; errors: Er
     });
     if (depth > 0) E(depthLine, 'Opening "(" without a closing ")"');
     ins.forEach(x => {
-        if (['SPA', 'SPB', 'SPBN', 'JNB', 'JBI', 'JNBI'].includes(x.op) && labels[x.a] === undefined) E(x.line, 'Label "' + x.a + '" does not exist in the program');
+        if (['SPA', 'SPB', 'SPBN', 'JNB', 'JBI', 'JNBI', ...CCJUMPS].includes(x.op) && labels[x.a] === undefined) E(x.line, 'Label "' + x.a + '" does not exist in the program');
     });
     return { prog: { ins, labels, lines, dbSizes }, errors, skipped, mnem, temps: tempLay.size, virtual };
 }
@@ -516,6 +518,7 @@ export class Machine {
     counters: Record<number, Counter> = {};
     acc1 = 0; acc2 = 0;
     RLO = false; STA = false;
+    OV = false; OS = false; CC0 = false; CC1 = false; UO = false;
     fresh = true; acc = false; rlo = false; newTerm = false;
     stack: any[] = [];
     dbs: Record<number, Uint8Array> = {}; dbReg = 0; diReg = 0;
@@ -531,6 +534,7 @@ export class Machine {
         this.PII.fill(0); this.Q.fill(0); this.M.fill(0); this.PQ.fill(0); this.Lm.fill(0); this.BR = false;
         this.timers = {}; this.counters = {}; this.dbs = {}; this.dbReg = 0; this.diReg = 0;
         this.acc1 = this.acc2 = 0; this.RLO = false; this.STA = false;
+        this.OV = this.OS = this.CC0 = this.CC1 = this.UO = false;
         this.pc = 0; this.inScan = false; this.scans = 0; this.lastScanMs = 0; this.error = '';
         this.resetChain();
     }
@@ -595,6 +599,7 @@ export class Machine {
     endScan() {
         this.inScan = false; this.pc = 0; this.scans++;
         this.lastScanMs = this.clock - this.scanStartClock;
+        this.OV = false; this.OS = false; // both clear at block end
         this.resetChain();
     }
     // execute one instruction; returns false if scan finished
@@ -663,6 +668,9 @@ export class Machine {
                 let p: number, q: number;
                 if (t === 'R') { p = f32(this.acc2); q = f32(this.acc1); } else if (t === 'D') { p = s32(this.acc2); q = s32(this.acc1); } else { p = s16(this.acc2); q = s16(this.acc1); }
                 const r = o === '==' ? p === q : o === '<>' ? p !== q : o === '>' ? p > q : o === '<' ? p < q : o === '>=' ? p >= q : p <= q;
+                this.OV = false;
+                if (t === 'R' && (isNaN(p) || isNaN(q))) { this.UO = true; this.CC0 = this.CC1 = false; }
+                else { this.UO = false; this.CC1 = p > q; this.CC0 = p < q; }
                 this.setChainValue(r); this.STA = r;
             } else if (/^[+\-*\/][IDR]$/.test(op)) {
                 const t = op[op.length - 1];
@@ -670,16 +678,22 @@ export class Machine {
                     const p = f32(this.acc2), q = f32(this.acc1);
                     const r = op[0] === '+' ? p + q : op[0] === '-' ? p - q : op[0] === '*' ? p * q : p / q;
                     this.acc1 = bitsOf(r);
+                    this.floatStatus(r);
                 } else {
                 const d = t === 'D';
                 const p = d ? s32(this.acc2) : s16(this.acc2), q = d ? s32(this.acc1) : s16(this.acc1);
-                let r = 0;
-                if (op[0] === '+') r = p + q; else if (op[0] === '-') r = p - q; else if (op[0] === '*') r = p * q;
-                else if (q === 0) r = 0; else r = Math.trunc(p / q);
+                let r = 0, ovf = false;
+                if (op[0] === '+') { r = p + q; ovf = d ? r > 2147483647 || r < -2147483648 : r > 32767 || r < -32768; }
+                else if (op[0] === '-') { r = p - q; ovf = d ? r > 2147483647 || r < -2147483648 : r > 32767 || r < -32768; }
+                else if (op[0] === '*') { r = p * q; ovf = d ? r > 2147483647 || r < -2147483648 : false; } // *I result is 32-bit: cannot overflow from int16 inputs
+                else if (q === 0) { r = 0; ovf = true; }
+                else { r = Math.trunc(p / q); ovf = d ? false : (p === -32768 && q === -1); }
                 if (d) this.acc1 = r >>> 0;
                 else if (op[0] === '/') { const rem = q === 0 ? 0 : p % q; this.acc1 = (((rem & 0xffff) << 16) | (r & 0xffff)) >>> 0; }
                 else if (op[0] === '*') this.acc1 = r >>> 0;
                 else this.acc1 = ((this.acc1 & 0xffff0000) | (r & 0xffff)) >>> 0;
+                const stored = op[0] === '/' && !d ? r : (d ? s32(this.acc1) : s16(this.acc1));
+                this.intStatus(stored, ovf);
                 }
             } else if (SIMPLE.includes(op)) this.simple(op);
             else if (SHIFT.includes(op)) this.shift(op, a);
@@ -700,6 +714,19 @@ export class Machine {
             else if (op === 'SPB' || op === 'SPBN') {
                 const r = this.RLO_now(); const jump = op === 'SPB' ? r : !r;
                 this.RLO = true; this.STA = true; this.resetChain(); this.RLO = true;
+                if (jump) next = this.prog.labels[a];
+            } else if (CCJUMPS.includes(op)) {
+                let jump = false;
+                if (op === 'JO') jump = this.OV;
+                else if (op === 'JOS') { jump = this.OS; this.OS = false; } // JOS always clears OS
+                else if (op === 'JUO') jump = this.UO;
+                else if (op === 'JZ') jump = !this.CC0 && !this.CC1;
+                else if (op === 'JN') jump = this.CC0 || this.CC1;
+                else if (op === 'JP') jump = !this.CC0 && this.CC1;
+                else if (op === 'JM') jump = this.CC0 && !this.CC1;
+                else if (op === 'JPZ') jump = !this.CC0;
+                else if (op === 'JMZ') jump = !this.CC1;
+                this.resetChain(); this.RLO = true; this.STA = true;
                 if (jump) next = this.prog.labels[a];
             } else if (op === 'JNB' || op === 'JBI' || op === 'JNBI') {
                 const r = this.RLO_now(); let jump: boolean;
@@ -722,29 +749,29 @@ export class Machine {
             case 'TAK': this.acc1 = this.acc2; this.acc2 = a1; break;
             case 'ITD': this.acc1 = (s16(a1)) >>> 0; break;
             case 'DTR': setR(s32(a1)); break;
-            case 'RND': this.acc1 = roundEven(f32(a1)) >>> 0; break;
-            case 'RND+': this.acc1 = Math.ceil(f32(a1)) >>> 0; break;
-            case 'RND-': this.acc1 = Math.floor(f32(a1)) >>> 0; break;
-            case 'TRUNC': this.acc1 = Math.trunc(f32(a1)) >>> 0; break;
-            case 'NEGI': this.acc1 = ((a1 & 0xffff0000) | ((-s16(a1)) & 0xffff)) >>> 0; break;
-            case 'NEGD': this.acc1 = (-s32(a1)) >>> 0; break;
-            case 'NEGR': setR(-f32(a1)); break;
-            case 'ABS': setR(Math.abs(f32(a1))); break;
+            case 'RND': { const v = roundEven(f32(a1)); this.acc1 = v >>> 0; this.intStatus(s32(this.acc1), isNaN(f32(a1)) || v > 2147483647 || v < -2147483648); break; }
+            case 'RND+': { const v = Math.ceil(f32(a1)); this.acc1 = v >>> 0; this.intStatus(s32(this.acc1), isNaN(f32(a1)) || v > 2147483647 || v < -2147483648); break; }
+            case 'RND-': { const v = Math.floor(f32(a1)); this.acc1 = v >>> 0; this.intStatus(s32(this.acc1), isNaN(f32(a1)) || v > 2147483647 || v < -2147483648); break; }
+            case 'TRUNC': { const v = Math.trunc(f32(a1)); this.acc1 = v >>> 0; this.intStatus(s32(this.acc1), isNaN(f32(a1)) || v > 2147483647 || v < -2147483648); break; }
+            case 'NEGI': { this.acc1 = ((a1 & 0xffff0000) | ((-s16(a1)) & 0xffff)) >>> 0; this.intStatus(s16(this.acc1), s16(a1) === -32768); break; }
+            case 'NEGD': { this.acc1 = (-s32(a1)) >>> 0; this.intStatus(s32(this.acc1), s32(a1) === -2147483648); break; }
+            case 'NEGR': { setR(-f32(a1)); this.floatStatus(-f32(a1)); break; }
+            case 'ABS': { const v = Math.abs(f32(a1)); setR(v); this.floatStatus(v); break; }
             case 'INVI': this.acc1 = ((a1 & 0xffff0000) | (~a1 & 0xffff)) >>> 0; break;
             case 'INVD': this.acc1 = (~a1) >>> 0; break;
             case 'CAW': this.acc1 = ((a1 & 0xffff0000) | ((a1 & 0xff) << 8) | ((a1 >> 8) & 0xff)) >>> 0; break;
             case 'CAD': this.acc1 = (((a1 & 0xff) << 24) | (((a1 >> 8) & 0xff) << 16) | (((a1 >> 16) & 0xff) << 8) | ((a1 >>> 24) & 0xff)) >>> 0; break;
-            case 'SQRT': setR(Math.sqrt(f32(a1))); break;
-            case 'SQR': setR(f32(a1) * f32(a1)); break;
-            case 'EXP': setR(Math.exp(f32(a1))); break;
-            case 'LN': setR(Math.log(f32(a1))); break;
-            case 'SIN': setR(Math.sin(f32(a1))); break;
-            case 'COS': setR(Math.cos(f32(a1))); break;
-            case 'TAN': setR(Math.tan(f32(a1))); break;
-            case 'ASIN': setR(Math.asin(f32(a1))); break;
-            case 'ACOS': setR(Math.acos(f32(a1))); break;
-            case 'ATAN': setR(Math.atan(f32(a1))); break;
-            case 'MOD': { const q = s32(a1), p = s32(this.acc2); this.acc1 = (q === 0 ? 0 : p % q) >>> 0; break; }
+            case 'SQRT': { const v = Math.sqrt(f32(a1)); setR(v); this.floatStatus(v); break; }
+            case 'SQR': { const v = f32(a1) * f32(a1); setR(v); this.floatStatus(v); break; }
+            case 'EXP': { const v = Math.exp(f32(a1)); setR(v); this.floatStatus(v); break; }
+            case 'LN': { const v = Math.log(f32(a1)); setR(v); this.floatStatus(v); break; }
+            case 'SIN': { const v = Math.sin(f32(a1)); setR(v); this.floatStatus(v); break; }
+            case 'COS': { const v = Math.cos(f32(a1)); setR(v); this.floatStatus(v); break; }
+            case 'TAN': { const v = Math.tan(f32(a1)); setR(v); this.floatStatus(v); break; }
+            case 'ASIN': { const v = Math.asin(f32(a1)); setR(v); this.floatStatus(v); break; }
+            case 'ACOS': { const v = Math.acos(f32(a1)); setR(v); this.floatStatus(v); break; }
+            case 'ATAN': { const v = Math.atan(f32(a1)); setR(v); this.floatStatus(v); break; }
+            case 'MOD': { const q = s32(a1), p = s32(this.acc2); this.acc1 = (q === 0 ? 0 : p % q) >>> 0; this.intStatus(s32(this.acc1), q === 0); break; }
         }
     }
     shift(op: string, n: number) {
@@ -763,6 +790,17 @@ export class Machine {
         }
     }
     RLO_now() { return this.fresh ? this.RLO : this.total(); }
+    // STEP 7 condition codes: CC0/CC1 by sign of the stored result; OV on overflow; OS latches until JOS or block end
+    setCC(v: number) { this.CC1 = v > 0; this.CC0 = v < 0; }
+    floatStatus(x: number) {
+        if (isNaN(x)) { this.UO = true; this.OV = true; this.OS = true; this.CC0 = this.CC1 = false; }
+        else if (!isFinite(x)) { this.UO = false; this.OV = true; this.OS = true; this.setCC(x); }
+        else { this.UO = false; this.OV = false; this.setCC(x); }
+    }
+    intStatus(stored: number, overflow: boolean) {
+        if (overflow) { this.OV = true; this.OS = true; } else this.OV = false;
+        this.setCC(stored);
+    }
     endTerm(v: boolean) { this.RLO = v; this.STA = v; this.fresh = true; this.acc = false; this.rlo = false; this.newTerm = false; }
     assign(a: any, v: boolean) { this.setBit(a, v); this.endTerm(v); }
     timerOp(op: string, n: number) {

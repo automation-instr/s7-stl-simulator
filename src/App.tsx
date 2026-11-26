@@ -229,7 +229,7 @@ export function App() {
 
     return <div className="s7">
         <div className="s7-top">
-            <div className="s7-title">{'S7-300 Simulator (STL)'}<small>{'Siemens STEP 7 Classic | Version 1.7.0'}</small></div>
+            <div className="s7-title">{'S7-300 Simulator (STL)'}<small>{'Siemens STEP 7 Classic | Version 1.8.0'}</small></div>
             <div className={'s7-mode ' + (running ? 'run' : 'stop')}>{running ? 'RUN' : 'STOP'}</div>
         </div>
 
@@ -402,6 +402,11 @@ export function App() {
                 <div className={'s7-flag' + (mach.STA ? ' on' : '')}>STA {mach.STA ? 1 : 0}</div>
                 <div className={'s7-flag' + (!mach.fresh ? ' on' : '')}>/FC {mach.fresh ? 0 : 1}</div>
                 <div className={'s7-flag' + (mach.acc ? ' on' : '')}>OR {mach.acc ? 1 : 0}</div>
+                <div className={'s7-flag' + (mach.CC0 ? ' on' : '')}>CC0 {mach.CC0 ? 1 : 0}</div>
+                <div className={'s7-flag' + (mach.CC1 ? ' on' : '')}>CC1 {mach.CC1 ? 1 : 0}</div>
+                <div className={'s7-flag' + (mach.OV ? ' on' : '')}>OV {mach.OV ? 1 : 0}</div>
+                <div className={'s7-flag' + (mach.OS ? ' on' : '')}>OS {mach.OS ? 1 : 0}</div>
+                <div className={'s7-flag' + (mach.UO ? ' on' : '')}>UO {mach.UO ? 1 : 0}</div>
             </div>
         </div>
 
@@ -504,7 +509,7 @@ export function App() {
             <p><b>{'Data blocks:'}</b> {'OPN DB/DI, and DBX/DBB/DBW/DBD (e.g. DBW2 or DB1.DBX0.3) with A, =, S, R, L, T. Each DB is 512 bytes (or its declared size when loaded).'}</p>
             <p><b>{'New in 1.2 (real projects):'}</b> {'Load a full STEP 7 project ZIP or several AWL files with the symbol table (SYMLIST.DBF). Symbolic addresses "name" and "DB".field, DB declarations (STRUCT) in true STEP 7 layout, temp variables #name and L 12.0 (VAR_TEMP), BLD and NOP, JNB/JBI/JNBI and SAVE, I/Q addresses up to 1023, M up to 4095, DB up to 65535, PIW/PQW, and a choice of English or Deutsch mnemonics.'}</p>
             <p><b>{'Timers:'}</b> {'English: SP=pulse, SE=extended pulse, SD=on-delay, SS=retentive, SF=off-delay. Deutsch: SI, SV, SE=on-delay, SS, SA. Chosen automatically from the code, with a manual override.'}</p>
-            <p><b>{'Not yet supported:'}</b> {'CALL to FC/FB (skipped and listed), OV/OS, indirect addressing [AR1,P#..].'}</p>
+            <p><b>{'Not yet supported:'}</b> {'CALL to FC/FB (skipped and listed), indirect addressing [AR1,P#..].'}</p>
             <p>{'German and English mnemonics are both accepted: U/UN = A/AN, E/A = I/Q, ZV/CU, ZR/CD, SPB/JC.'}</p>
             <div className="s7-warn">{'This simulates STL behavior on an S7-300 for learning. It is not a replacement for PLCSIM or testing on real hardware.'}</div>
         </details></div>
