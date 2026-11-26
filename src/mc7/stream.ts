@@ -55,8 +55,13 @@ function tryFcCall(code: Uint8Array, p: number, proj: S7Project): [number, Strea
   let pnames: string[];
   if (target[0] === 'FC') {
     const ifc = proj.fcInterface(target[1]);
-    if (!ifc) return null;
-    pnames = ifc.filter(pp => pp.section !== 'TEMP').map(pp => pp.name);
+    if (ifc) pnames = ifc.filter(pp => pp.section !== 'TEMP').map(pp => pp.name);
+    else {
+      // no stored interface: fall back to the JU-operand formula (2*nparams + 2)
+      const n = (hdrw - 2) / 2;
+      if (n < 0 || n % 1 !== 0 || n > 64) return null;
+      pnames = Array.from({ length: n }, (_, i) => 'P' + (i + 1));
+    }
   } else {
     // SFC frames have no stored interface: the JU operand (hdrw) = 2*nparams + 2.
     const n = (hdrw - 2) / 2;
@@ -130,6 +135,47 @@ function tryFbCall(code: Uint8Array, p: number): [number, StreamEntry] | null {
   return [q, { kind: 'CALLFB', off: p, fb, inst, scratch, tar2, blds, pre, post }];
 }
 
+/** CALL frame without the scratch preamble: starts directly at UC FC/SFC + JU + descriptors. */
+function tryFcCallBare(code: Uint8Array, p: number, proj: S7Project): [number, StreamEntry] | null {
+  let q = p;
+  const w1 = w1at(code, q);
+  let target: [string, number];
+  if (w1 === 0xfb70) { target = ['FC', (code[q + 2] << 8) | code[q + 3]]; q += 4; }
+  else if (w1 === 0xfb74) { target = ['SFC', (code[q + 2] << 8) | code[q + 3]]; q += 4; }
+  else return null;
+  if (w1at(code, q) !== 0x700b) return null;
+  const hdrw = code[q + 3]; q += 4;
+  let pnames: string[] | null = null;
+  if (target[0] === 'FC') {
+    const ifc = proj.fcInterface(target[1]);
+    if (ifc) pnames = ifc.filter(pp => pp.section !== 'TEMP').map(pp => pp.name);
+  }
+  if (!pnames) {
+    const n = (hdrw - 2) / 2;
+    if (n < 1 || n % 1 !== 0 || n > 64) return null;
+    pnames = Array.from({ length: n }, (_, i) => 'P' + (i + 1));
+  }
+  const params: [string, number][] = [];
+  for (const pn of pnames) { params.push([pn, dsc(code, q)]); q += 4; }
+  const post: Instr[] = [];
+  for (;;) {
+    const r = decode(code, q); const d = r[1];
+    if (d[0] === 'L' || d[0] === 'OPN' || d[0] === 'A' || d[0] === 'AN' || d[0] === 'O' || d[0] === 'ON' || d[0] === '=' || d[0] === 'T') {
+      post.push(d); q = r[0]!;
+      if (d[0] === 'T' || d[0] === '=') {
+        const r2 = decode(code, q), d2 = r2[1];
+        const b1 = Array.isArray(d2[1]) ? (d2[1] as unknown[])[0] : null;
+        if ((d2[0] === 'L' || d2[0] === 'A' || d2[0] === 'AN') && b1 === 'L') continue;
+        break;
+      }
+      continue;
+    }
+    break;
+  }
+  if (w1at(code, q) === 0x1002) q += 2;
+  return [q, { kind: 'CALL', off: p, target, blds: [], pre: [], hdrw, params, post }];
+}
+
 /** Decode a whole compiled block into a stream of instructions and call frames. */
 export function streamBlock(code: Uint8Array, proj: S7Project): StreamEntry[] {
   const out: StreamEntry[] = [];
@@ -138,6 +184,8 @@ export function streamBlock(code: Uint8Array, proj: S7Project): StreamEntry[] {
     let r = tryFbCall(code, p);
     if (r) { r[1].off = p; out.push(r[1]); p = r[0]; continue; }
     r = tryFcCall(code, p, proj);
+    if (r) { r[1].off = p; out.push(r[1]); p = r[0]; continue; }
+    r = tryFcCallBare(code, p, proj);
     if (r) { r[1].off = p; out.push(r[1]); p = r[0]; continue; }
     const [np, d] = decode(code, p);
     if (np === null) {

@@ -50,13 +50,27 @@ export function decode(code: Uint8Array, p: number): [number | null, Instr] {
     const sz = ({ 1: 'B', 2: 'W', 3: 'D', 5: 'B', 6: 'W', 7: 'D' } as Record<number, string>)[n] ?? '??';
     return [p + 4, [op, ['L', a16, sz]]];
   }
+  if (w1 === 0x7e31) return [p + 4, ['L', ['MB', a16]]];
+  if (w1 === 0x7e32) return [p + 4, ['L', ['MW', a16]]];
+  if (w1 === 0x7e33) return [p + 4, ['L', ['MD', a16]]];
+  if (w1 === 0x7e35) return [p + 4, ['T', ['MB', a16]]];
+  if (w1 === 0x7e36) return [p + 4, ['T', ['MW', a16]]];
+  if (w1 === 0x7e37) return [p + 4, ['T', ['MD', a16]]];
   if (w1 === 0x300c) return [p + 4, ['L', ['S5T', a16]]];
+  if (w1 === 0x3002) return [p + 4, ['L', ['BIN16', a16]]];
+  if (w1 === 0x3005) return [p + 4, ['L', ['CHAR', a16]]];
+  if (w1 === 0x3006) return [p + 4, ['L', ['BYTES2', a16]]];
+  if (w1 === 0x3007) return [p + 4, ['L', ['W16', a16]]];
+  if (w1 === 0x3008) return [p + 4, ['L', ['CVAL', a16]]];
+  if (w1 === 0x300a) return [p + 4, ['L', ['DATE', a16]]];
   if (w1 === 0xfb7c) return [p + 2, ['CDB', null]];
   if (w1 === 0xfb79) return [p + 4, ['OPN', ['DI', a16]]];
   if (w1 === 0xfb74) return [p + 4, ['UC', ['SFC', a16]]];
   if (w1 === 0xfb76) return [p + 4, ['UC', ['SFB', a16]]];
   if (w1 === 0xfb72) return [p + 4, ['UC', ['FB', a16]]];
   if (w1 === 0xfe6f) return [p + 4, ['TAR2LD', a16]];
+  if (w1 === 0xfe63) return [p + 4, ['LAR1LD', a16]];
+  if (w1 === 0xfe67) return [p + 4, ['TAR1LD', a16]];
   if (w1 === 0xfe6b) return [p + 4, ['LAR2LD', a16]];
   if (w1 === 0x681d) return [p + 2, ['SET', null]];
   if (b0 === 0x75) return [p + 2, ['UC', ['FB', code[p + 1]]]];
@@ -99,7 +113,47 @@ export function decode(code: Uint8Array, p: number): [number | null, Instr] {
   }
   if (hi === 0xfb && lo in PAR_OP) return [p + 4, [PAR_OP[lo][0], ['PAR', a16, PAR_OP[lo][1]]]];
   if (w1 in UC_IND) return [p + 4, [UC_IND[w1][0], [UC_IND[w1][1], ['IND', UC_IND[w1][2], a16]]]];
+  if (w1 === 0xfb68) return [p + 4, ['OPN', ['DB', ['IND', 'LW', a16]]]];
+  if (w1 === 0xfb69) return [p + 4, ['OPN', ['DI', ['IND', 'LW', a16]]]];
   if (w1 === 0x3801) return [p + 6, ['L', ['REAL', ((code[p + 2] << 24) | (code[p + 3] << 16) | (code[p + 4] << 8) | code[p + 5]) >>> 0]]];
+  if (hi === 0x38 && lo in LIT32) return [p + 6, ['L', ['LIT', LIT32[lo], ((code[p + 2] << 24) | (code[p + 3] << 16) | (code[p + 4] << 8) | code[p + 5]) >>> 0]]];
+  if (w1 === 0x3804) {
+    const area = code[p + 2];
+    const bitaddr = (code[p + 3] << 16) | (code[p + 4] << 8) | code[p + 5];
+    return [p + 6, ['L', ['PLIT', area, bitaddr >>> 3, bitaddr & 7]]];
+  }
+  if (hi === 0xbe && (lo & 7) in BE_SZ) {
+    const [op, sz] = BE_SZ[lo & 7];
+    const area = BE_AREA[lo >> 4];
+    if (area) return [p + 4, [op, ['PTRW', area + sz, a16 >>> 3, a16 & 7, lo & 8 ? 'AR2' : 'AR1']]];
+    return [p + 4, [op, ['PTRS', sz, a16 >>> 3, a16 & 7, lo & 8 ? 'AR2' : 'AR1']]];
+  }
+  if (hi === 0x79) {
+    const grp = lo >> 4;
+    if (grp >= 1 && grp <= 6 && (lo & 7) <= 5) {
+      const area = ['', 'I', 'Q', 'M', 'DBX', 'DIX', 'L'][grp];
+      return [p + 4, [R79_LOGIC[lo & 7], ['PTR', area, a16 >>> 3, a16 & 7, lo & 8 ? 'AR2' : 'AR1']]];
+    }
+    if (grp >= 9 && grp <= 14 && (lo & 7) in R79_ASSIGN) {
+      const area = ['', 'I', 'Q', 'M', 'DBX', 'DIX', 'L'][grp - 8];
+      return [p + 4, [R79_ASSIGN[lo & 7], ['PTR', area, a16 >>> 3, a16 & 7, lo & 8 ? 'AR2' : 'AR1']]];
+    }
+  }
+  if (hi === 0xfb) {
+    if (lo >= 0x01 && lo <= 0x0f && (lo & 7) in BE_SZ) {
+      const [op, sz] = BE_SZ[lo & 7];
+      return [p + 4, [op, ['PTRS', sz, a16 >>> 3, a16 & 7, lo & 8 ? 'AR2' : 'AR1']]];
+    }
+    if (lo >= 0x10 && lo <= 0x1d && (lo & 7) <= 5) {
+      return [p + 4, [R79_LOGIC[lo & 7], ['PTRB', a16 >>> 3, a16 & 7, lo & 8 ? 'AR2' : 'AR1']]];
+    }
+    if (lo >= 0x20 && lo <= 0x2d && (lo & 7) in R79_ASSIGN) {
+      return [p + 4, [R79_ASSIGN[lo & 7], ['PTRB', a16 >>> 3, a16 & 7, lo & 8 ? 'AR2' : 'AR1']]];
+    }
+    if (lo in FB_TIMER) return [p + 4, [FB_TIMER[lo], ['T', a16]]];
+    if (lo in FB_COUNTER) return [p + 4, [FB_COUNTER[lo], ['C', a16]]];
+    if (lo === 0xcb) return [p + 4, ['L', ['PLIT16', a16 >>> 3, a16 & 7]]];
+  }
   if (b0 === 0x1d) return [p + 2, ['CC', ['FC', code[p + 1]]]];
   if (b0 === 0x55) return [p + 2, ['CC', ['FB', code[p + 1]]]];
   return [null, ['??', code[p].toString(16).padStart(2, '0') + ' ' + code[p + 1].toString(16).padStart(2, '0') + ' @' + p]];
@@ -121,8 +175,9 @@ const MISC2: Record<number, Instr> = {
   0x6004: ['*I', null], 0x6006: ['NEGR', null], 0x6007: ['*R', null], 0x6008: ['ENT', null],
   0x6009: ['-D', null], 0x600a: ['*D', null], 0x600b: ['-R', null], 0x600d: ['+D', null], 0x600e: ['/D', null], 0x600f: ['+R', null],
   0x2120: ['>I', null], 0x2140: ['>=I', null], 0x2160: ['<>I', null], 0x2180: ['==I', null], 0x21a0: ['<I', null], 0x21c0: ['<=I', null],
+  0x3920: ['>D', null], 0x3940: ['>=D', null], 0x3960: ['<>D', null], 0x3980: ['==D', null], 0x39a0: ['<D', null], 0x39c0: ['<=D', null],
   0x3120: ['>R', null], 0x3140: ['>=R', null], 0x3160: ['<>R', null], 0x3180: ['==R', null], 0x31a0: ['<R', null], 0x31c0: ['<=R', null],
-  0x4100: ['AW', null],
+  0x0100: ['INVI', null], 0x0900: ['NEGI', null], 0x4100: ['AW', null], 0x4900: ['OW', null],
   0x6010: ['SIN', null], 0x6011: ['COS', null], 0x6012: ['TAN', null], 0x6013: ['LN', null], 0x6014: ['SQRT', null],
   0x6018: ['ASIN', null], 0x6019: ['ACOS', null], 0x601a: ['ATAN', null], 0x601b: ['EXP', null], 0x601c: ['SQR', null],
   0x6806: ['DTR', null], 0x6807: ['NEGD', null], 0x6808: ['ITB', null], 0x680a: ['DTB', null],
@@ -130,7 +185,7 @@ const MISC2: Record<number, Instr> = {
   0x6813: ['SLD', null], 0x6817: ['RLD', null], 0x6818: ['RLDA', null], 0x681a: ['CAW', null],
   0x681b: ['CAD', null], 0x681c: ['CLR', null], 0x681e: ['ITD', null], 0x6822: ['SRW', null],
   0x6823: ['SRD', null], 0x6824: ['SSI', null], 0x6825: ['SSD', null], 0x682c: ['SAVE', null],
-  0x7002: ['TAK', null], 0x6501: ['BEU', null], 0x0500: ['BEC', null], 0xffff: ['NOP', 1],
+  0x6857: ['XOD', null], 0x685c: ['RND', null], 0x685d: ['RND-', null], 0x685e: ['RND+', null], 0x685f: ['TRUNC', null], 0x7002: ['TAK', null], 0x6501: ['BEU', null], 0x0500: ['BEC', null], 0xffff: ['NOP', 1],
   0xfe04: ['LAR1', null], 0xfe01: ['LAR1AR2', null], 0xfe05: ['TAR1', null], 0xfe06: ['+AR1', null],
   0xfe08: ['CAR', null], 0xfe09: ['TAR1AR2', null], 0xfe0c: ['LAR2', null], 0xfe0d: ['TAR2', null], 0xfe0e: ['+AR2', null],
 };
@@ -150,8 +205,22 @@ const PAR_OP: Record<number, [string, string]> = {
 const UC_IND: Record<number, [string, string, string]> = {
   0xfb30: ['UC', 'FC', 'MW'], 0xfb31: ['CC', 'FC', 'MW'], 0xfb32: ['UC', 'FB', 'MW'], 0xfb33: ['CC', 'FB', 'MW'],
   0xfb41: ['CC', 'FC', 'DBW'], 0xfb43: ['CC', 'FB', 'DBW'], 0xfb51: ['CC', 'FC', 'DIW'], 0xfb53: ['CC', 'FB', 'DIW'],
-  0xfb61: ['CC', 'FC', 'LW'], 0xfb63: ['CC', 'FB', 'LW'],
+  0xfb60: ['UC', 'FC', 'LW'], 0xfb61: ['CC', 'FC', 'LW'], 0xfb62: ['UC', 'FB', 'LW'], 0xfb63: ['CC', 'FB', 'LW'],
 };
+
+
+/** Register-indirect L/T (BExx): area by hi nibble of lo, size/op by low nibble, AR2 by bit 3. */
+const BE_AREA: Record<number, string> = { 1: 'I', 2: 'Q', 3: 'M', 4: 'DB', 5: 'DI', 6: 'L' };
+const BE_SZ: Record<number, [string, string]> = { 1: ['L', 'B'], 2: ['L', 'W'], 3: ['L', 'D'], 5: ['T', 'B'], 6: ['T', 'W'], 7: ['T', 'D'] };
+/** 79xx register-indirect bit ops: logic (grp 1-6) and assign (grp 9-14) families. */
+const R79_LOGIC = ['A', 'AN', 'O', 'ON', 'X', 'XN'];
+const R79_ASSIGN: Record<number, string> = { 0: 'S', 1: 'R', 2: '=', 4: 'FP', 5: 'FN' };
+/** FB Fx: counter ops with a 16-bit counter number (C256+). */
+const FB_COUNTER: Record<number, string> = { 0xf0: 'A', 0xf1: 'AN', 0xf2: 'O', 0xf3: 'ON', 0xf4: 'X', 0xf5: 'XN', 0xf6: 'L', 0xf8: 'FR', 0xf9: 'LC', 0xfa: 'CD', 0xfb: 'S', 0xfd: 'CU', 0xff: 'R' };
+/** FB Ex: timer ops with a 16-bit timer number (T256+). */
+const FB_TIMER: Record<number, string> = { 0xe0: 'A', 0xe1: 'AN', 0xe2: 'O', 0xe3: 'ON', 0xe4: 'X', 0xe5: 'XN', 0xe6: 'L', 0xe8: 'FR', 0xe9: 'LC', 0xea: 'SF', 0xeb: 'SE', 0xec: 'SD', 0xed: 'SS', 0xee: 'SP', 0xef: 'R' };
+/** 38xx 32-bit literal kinds. */
+const LIT32: Record<number, string> = { 0x02: 'BIN', 0x06: 'BYTES', 0x07: 'DWORD', 0x09: 'TIME', 0x0b: 'TOD' };
 
 /** Word at p (big-endian). */
 export function w1at(code: Uint8Array, p: number): number {

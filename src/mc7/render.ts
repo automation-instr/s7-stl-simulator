@@ -76,7 +76,7 @@ export function fmtInstr(op: string, arg: unknown, ctx: RenderCtx, st: { db: num
   const a = arg as unknown[];
   if (!Array.isArray(a)) {
     // TAR2LD / LAR2LD numeric arg
-    return { text: `${op === 'TAR2LD' ? 'TAR2 LD ' : op === 'LAR2LD' ? 'LAR2 LD ' : op + ' '}${arg}` };
+    return { text: `${({ TAR2LD: 'TAR2 LD ', LAR2LD: 'LAR2 LD ', TAR1LD: 'TAR1 LD ', LAR1LD: 'LAR1 LD ' } as Record<string, string>)[op] ?? op + ' '}${arg}` };
   }
   switch (a[0] as string) {
     case 'M': case 'I': case 'Q': case 'L': case 'DBX': case 'DI': {
@@ -144,6 +144,31 @@ export function fmtInstr(op: string, arg: unknown, ctx: RenderCtx, st: { db: num
       return { text: `${op} ${nm ? '#' + nm : 'PAR ' + a[1]}` };
     }
     case 'IND': return { text: `${op} [${a[1]} ${a[2]}]` };
+    case 'PTR': return { text: `${op} ${a[1]} [${a[4]},P#${a[2]}.${a[3]}]` };
+    case 'PTRW': return { text: `${op} ${a[1]} [${a[4]},P#${a[2]}.${a[3]}]` };
+    case 'PTRS': return { text: `${op} ${a[1]} [${a[4]},P#${a[2]}.${a[3]}]` };
+    case 'PTRB': return { text: `${op} [${a[3]},P#${a[1]}.${a[2]}]` };
+    case 'BIN16': return { text: `L 2#${(a[1] as number).toString(2).padStart(16, '0')}` };
+    case 'CHAR': { const v = a[1] as number; return { text: `L '${v >= 32 && v < 127 ? String.fromCharCode(v) : '?'}'`, comment: v >= 32 && v < 127 ? undefined : `code ${v}` }; }
+    case 'BYTES2': { const v = a[1] as number; return { text: `L B#(${(v >>> 8) & 0xff},${v & 0xff})` }; }
+    case 'W16': return { text: `L W#16#${(a[1] as number).toString(16).toUpperCase().padStart(4, '0')}` };
+    case 'CVAL': return { text: `L C#${a[1]}` };
+    case 'DATE': return { text: `L D#16#${(a[1] as number).toString(16).toUpperCase().padStart(4, '0')}` };
+    case 'PLIT16': return { text: `L P#${a[1]}.${a[2]}` };
+    case 'PLIT': {
+      const areas: Record<number, string> = { 0x81: 'I', 0x82: 'Q', 0x83: 'M', 0x84: 'DB', 0x85: 'Q', 0x86: 'DI', 0x87: 'L' };
+      const ar = areas[a[1] as number];
+      return { text: `L P#${ar ?? ''}${a[2]}.${a[3]}` };
+    }
+    case 'LIT': {
+      const kind = a[1] as string, v = (a[2] as number) >>> 0;
+      const hex8 = v.toString(16).toUpperCase().padStart(8, '0');
+      if (kind === 'BIN') return { text: `L 2#${v.toString(2).padStart(32, '0')}` };
+      if (kind === 'DWORD') return { text: `L DW#16#${hex8}` };
+      if (kind === 'BYTES') return { text: `L B#(${[24, 16, 8, 0].map(sh => (v >>> sh) & 0xff).join(',')})` };
+      if (kind === 'TIME') { const sv = v | 0; return { text: `L T#${sv}MS` }; }
+      return { text: `L 16#${hex8}`, comment: kind };
+    }
   }
   return { text: `${op} ?` };
 }
@@ -210,8 +235,8 @@ export function renderBlock(code: Uint8Array, proj: S7Project, ctx: RenderCtx = 
   const pushInstr = (off: number, d: Instr, cls: RenderLine['cls'] = 'instr') => {
     if (d[0] === 'OPN' && Array.isArray(d[1])) {
       const a = d[1] as unknown[];
-      if (a[0] === 'DB') st.db = a[1] as number;
-      if (a[0] === 'DI') st.di = a[1] as number;
+      if (a[0] === 'DB' && typeof a[1] === 'number') st.db = a[1] as number;
+      if (a[0] === 'DI' && typeof a[1] === 'number') st.di = a[1] as number;
     }
     if (d[0] === 'CDB') { const t = st.db; st.db = st.di; st.di = t; }
     if (d[0] === 'BLD') { push(off, `BLD ${d[1]}`, 'bld'); return; }

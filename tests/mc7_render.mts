@@ -47,6 +47,25 @@ const ok = (cond: boolean, msg: string) => { console.log((cond ? 'ok  ' : 'BAD '
   ok(l2.includes('      B := M 2.3'), 'FC9002: M-area IN param B := M 2.3');
   ok(l2.includes('      C := MD 40'), 'FC9002: OUT param copy-back C := MD 40');
 
+  const ctx5: RenderCtx = { ...ctx, paramName: op => (['P1', 'P2'] as const)[op / 2 - 1] ?? null };
+  const l5lines = renderBlock(code('FC9005'), proj, ctx5);
+  const t5 = l5lines.map(l => (l.label ? l.label + ': ' : '') + l.text + (l.comment ? '  // ' + l.comment : ''));
+  ok(l5lines.filter(l => l.cls === 'raw').length === 0, 'FC9005: zero RAW lines');
+  ok(t5.includes('JC M001') && l5lines.some(l => l.label === 'M001' && l.off === 8), 'FC9005: JC label at 8');
+  ok(t5.some(x => x.includes('LOOP M002')) && t5.some(x => x.includes('JCN M003')), 'FC9005: LOOP/JCN labels');
+  ok(t5.some(x => x.includes('A OS')) && t5.includes('AN OV') && t5.includes('O ==0') && t5.includes('X BR'), 'FC9005: status-bit logic');
+  ok(t5.includes('A #P1') && t5.includes('L #P2'), 'FC9005: PARAMETER names from own interface');
+  ok(t5.includes('A DIX [AR2,P#2.0]') && t5.includes('L DIW [AR2,P#4.0]'), 'FC9005: register-indirect area forms');
+  ok(t5.includes('L B [AR1,P#1.0]') && t5.includes('A [AR1,P#1.1]'), 'FC9005: area-less register-indirect');
+  ok(t5.includes('O T 711') && t5.includes('A C 256') && t5.includes('SD T 256'), 'FC9005: 16-bit timer/counter ops');
+  ok(t5.includes('L P#M2.0'), 'FC9005: P# literal with area');
+  ok(t5.includes('L 1.5  // = 16#3FC00000'), 'FC9005: REAL literal');
+  ok(t5.includes('L 2#00000000000000000000000000001111'), 'FC9005: 32-bit binary literal');
+  ok(t5.includes('L W#16#1234'), 'FC9005: W#16 literal');
+  ok(t5.includes('RND') && t5.includes('TAK') && t5.includes('CLR') && t5.includes('SAVE') && t5.includes('BEC') && t5.includes('BEU'), 'FC9005: misc 2B ops');
+  ok(t5.includes('>D') && t5.includes('>=I') && t5.includes('AW') && t5.includes('OW') && t5.includes('NEGI') && t5.includes('INVI') && t5.includes('XOD'), 'FC9005: compares and accu logic');
+  ok(t5.includes('LAR1') && t5.includes('LAR1 LD 10') && t5.includes('TAR1 LD 10'), 'FC9005: AR1 ops');
+
   const l3 = renderBlock(code('FC9003'), proj, ctx).map(l => l.text);
   ok(l3.includes('CALL "MY_FB" , DB 30'), 'FC9003: CALL FB with instance');
   ok(l3.includes('      X := MB 12'), 'FC9003: FB IN param X := MB 12');
