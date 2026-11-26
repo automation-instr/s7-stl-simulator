@@ -31,6 +31,13 @@ export function Mc7Stl({ proj, kind, num, comp }: { proj: any; kind: string; num
             const ctx: RenderCtx = {
                 symbolFor: a => rev[a] ?? null,
                 blockName: (k, n) => names.get(`${k} ${n}`) ?? null,
+                paramName: (operand) => {
+                    const ifc = kind === 'FC' ? mc7proj.fcInterface(num) : kind === 'FB' ? (mc7proj.fbInterface(num)?.params ?? null) : null;
+                    if (!ifc) return null;
+                    const list = ifc.filter(p => p.section !== 'TEMP' && p.section !== 'STAT');
+                    const i = operand / 2 - 1;
+                    return i >= 0 && i < list.length ? list[i].name : null;
+                },
                 dbField: (db, byte, bit) => {
                     const lay = proj.dbs?.[db];
                     if (!lay) return null;

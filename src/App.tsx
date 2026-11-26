@@ -296,13 +296,13 @@ export function App() {
                                 <div className="nm" style={{ direction: 'ltr', textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.num != null && <span className="s7-bn">{r.kind + r.num}</span>}{r.name !== r.kind + r.num && r.name}{x && <small>{x.text.split('\n').length} {'lines'}</small>}</div>
                                 {r.title && <div className="s7-cmt">{r.title}</div>}
                                 {(r.code || r.iface) && <div className="s7-dates">{r.code ? <span>{'Code'} {fmtD(r.code)}</span> : null}{r.iface ? <span>{'Interface'} {fmtD(r.iface)}</span> : null}</div>}
-                                {!x && <div className="s7-hint" style={{ marginTop: 2 }}>{'Compiled block: instructions not decoded yet'}</div>}
+                                {!x && <div className="s7-hint" style={{ marginTop: 2 }}>{'Compiled block: shown as decoded STL (no source)'}</div>}
                                 {v && <div className="s7-hint" style={{ marginTop: 2, color: v.err ? '#ff8a80' : v.skip ? '#ffcc80' : '#81c995' }}>
                                     {v.err ? 'Cannot load: ' + v.err + ' error(s)' : v.skip ? 'Loads (' + v.ins + ' instructions) with ' + v.skip + ' skipped CALL(s)' : 'Loads (' + v.ins + ' instructions)'}{v.virt ? ' | ' + v.virt + ' virtual DB field(s)' : ''}
                                 </div>}
                             </div>
                             {x && <button type="button" className="s7-chip" onClick={() => setViewBlk(x.name)}>{'View'}</button>}
-                            {!x && r.comp && <button type="button" className="s7-chip" onClick={() => setCompKey(r.key)}>{'Info'}</button>}
+                            {!x && r.comp && <button type="button" className="s7-chip" onClick={() => setCompKey(r.key)}>{'View'}</button>}
                             {v && <button type="button" className="s7-chip" onClick={() => pickBlock(x.name)}>{'Load'}</button>}
                         </div>;
                     })}

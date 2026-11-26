@@ -5,7 +5,7 @@
  * Semantics validated on the MORE PLC ground truth; see docs/MC7.md.
  */
 
-export interface IfaceParam { name: string; section: 'IN' | 'IN_OUT' | 'OUT' | 'TEMP' | 'STAT'; type: string }
+export interface IfaceParam { name: string; section: 'IN' | 'IN_OUT' | 'OUT' | 'TEMP' | 'STAT' | 'RETURN'; type: string }
 
 /** Parse FC interface text (VAR_INPUT/VAR_IN_OUT/VAR_OUTPUT/VAR_TEMP). Order preserved. */
 export function parseFcInterface(txt: string): IfaceParam[] {
@@ -16,6 +16,7 @@ export function parseFcInterface(txt: string): IfaceParam[] {
     if (line.startsWith('VAR_INPUT')) cur = 'IN';
     else if (line.startsWith('VAR_IN_OUT')) cur = 'IN_OUT';
     else if (line.startsWith('VAR_OUTPUT')) cur = 'OUT';
+    else if (line.startsWith('VAR_RETURN')) cur = 'RETURN';
     else if (line.startsWith('VAR_TEMP')) cur = 'TEMP';
     else if (line.startsWith('END_VAR')) cur = null;
     else if (cur) {
@@ -59,6 +60,7 @@ export function parseFbInterface(txt: string): { params: IfaceParam[]; offsets: 
     if (line.startsWith('VAR_INPUT')) cur = 'IN';
     else if (line.startsWith('VAR_IN_OUT')) cur = 'IN_OUT';
     else if (line.startsWith('VAR_OUTPUT')) cur = 'OUT';
+    else if (line.startsWith('VAR_RETURN')) cur = 'RETURN';
     else if (line.startsWith('VAR_TEMP')) cur = 'TEMP';
     else if (line.startsWith('VAR')) cur = 'STAT';
     else if (line.startsWith('END_VAR')) {

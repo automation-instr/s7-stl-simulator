@@ -52,10 +52,17 @@ function tryFcCall(code: Uint8Array, p: number, proj: S7Project): [number, Strea
   else return null;
   if (w1at(code, q) !== 0x700b) return null;
   const hdrw = code[q + 3]; q += 4;
-  if (target[0] !== 'FC') return null;
-  const ifc = proj.fcInterface(target[1]);
-  if (!ifc) return null;
-  const pnames = ifc.filter(pp => pp.section !== 'TEMP').map(pp => pp.name);
+  let pnames: string[];
+  if (target[0] === 'FC') {
+    const ifc = proj.fcInterface(target[1]);
+    if (!ifc) return null;
+    pnames = ifc.filter(pp => pp.section !== 'TEMP').map(pp => pp.name);
+  } else {
+    // SFC frames have no stored interface: the JU operand (hdrw) = 2*nparams + 2.
+    const n = (hdrw - 2) / 2;
+    if (n < 0 || n % 1 !== 0 || n > 64) return null;
+    pnames = Array.from({ length: n }, (_, i) => 'P' + (i + 1));
+  }
   const params: [string, number][] = [];
   for (const pn of pnames) { params.push([pn, dsc(code, q)]); q += 4; }
   const post: Instr[] = [];

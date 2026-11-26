@@ -17,6 +17,8 @@ export interface RenderCtx {
   blockName(kind: string, num: number): string | null;
   /** field path inside a DB at byte/bit ("DB10".field), or null */
   dbField(db: number, byte: number, bit?: number): string | null;
+  /** own-interface parameter name for a PARAMETER operand (2*(index+1)), or null */
+  paramName?(operand: number): string | null;
 }
 
 export interface RenderLine {
@@ -110,6 +112,10 @@ export function fmtInstr(op: string, arg: unknown, ctx: RenderCtx, st: { db: num
       return { text: `${op} ${s ? `"${s}"` : abs}`, comment: s ? abs : undefined };
     }
     case 'FC': case 'FB': case 'SFC': case 'SFB': {
+      if (Array.isArray(a[1])) {
+        const ind = a[1] as unknown[]; // ['IND', area, off]
+        return { text: `${op} ${a[0]} [${ind[1]} ${ind[2]}]` };
+      }
       const n = a[1] as number;
       const nm = ctx.blockName(a[0] as string, n);
       return { text: `${op} ${nm ? `"${nm}"` : a[0] + ' ' + n}`, comment: nm ? `${a[0]} ${n}` : undefined };
@@ -126,6 +132,18 @@ export function fmtInstr(op: string, arg: unknown, ctx: RenderCtx, st: { db: num
     }
     case 'S5T': return { text: `L ${s5t(a[1] as number)}` };
     case 'REL': return { text: `${op} ${lbl((a[2] as number) + 2 * (a[1] as number))}` };
+    case 'REAL': {
+      const v = a[1] as number;
+      const f = f32(v);
+      const hex = '16#' + (v >>> 0).toString(16).toUpperCase().padStart(8, '0');
+      return f != null ? { text: `L ${f}`, comment: `= ${hex}` } : { text: `L ${hex}` };
+    }
+    case 'ST': return { text: `${op} ${a[1]}` };
+    case 'PAR': {
+      const nm = ctx.paramName ? ctx.paramName(a[1] as number) : null;
+      return { text: `${op} ${nm ? '#' + nm : 'PAR ' + a[1]}` };
+    }
+    case 'IND': return { text: `${op} [${a[1]} ${a[2]}]` };
   }
   return { text: `${op} ?` };
 }
@@ -174,7 +192,7 @@ export function renderBlock(code: Uint8Array, proj: S7Project, ctx: RenderCtx = 
   // assign labels to jump targets in order of appearance
   const targets = new Set<number>();
   for (const e of seq) {
-    if (e.kind === 'I' && e.op === 'JNB' && Array.isArray(e.arg)) targets.add((e.arg as number[])[2] + 2 * (e.arg as number[])[1]);
+    if (e.kind === 'I' && Array.isArray(e.arg) && (e.arg as unknown[])[0] === 'REL') targets.add((e.arg as number[])[2] + 2 * (e.arg as number[])[1]);
   }
   const names = new Map<number, string>(); let ln = 0;
   for (const e of seq) if (e.kind === 'I' && e.off != null && targets.has(e.off)) { ln++; names.set(e.off, 'M' + String(ln).padStart(3, '0')); }
