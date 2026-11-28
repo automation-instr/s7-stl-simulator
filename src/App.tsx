@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { compile, Machine, TIMER_NAME, Ctx } from './engine';
-import { Proj, loadFiles, idbPut, idbGet, idbDel } from './project';
+import { Proj, loadFiles, idbPut, idbDel } from './project';
 import { EXAMPLES } from './examples';
 import { BlockSheet, KIND_LABEL } from './BlockSheet';
 import { Mc7Stl } from './Mc7Sheet';
@@ -59,7 +59,7 @@ export function App() {
     const m = useRef<Machine>(null as any);
     if (!m.current) m.current = new Machine();
     const mach = m.current;
-    const [text, setText] = useState(() => lsGet(LS_DRAFT) || WELCOME);
+    const [text, setText] = useState(WELCOME);
     const [pick, setPick] = useState(false);
     const [viewBlk, setViewBlk] = useState('');
     const [compKey, setCompKey] = useState('');
@@ -84,7 +84,6 @@ export function App() {
     const [wfilter, setWfilter] = useState('');
     const [wmax, setWmax] = useState(60);
     const [busy, setBusy] = useState(false);
-    useEffect(() => { idbGet('project').then((p: any) => { if (p && p.proj) { setProj(p.proj); if (p.blk) { setBlk(p.blk); const b = p.proj.blocks.find((x: any) => x.name === p.blk); if (b) { setText(b.text); setExId(''); } } } }); }, []);
 
     useEffect(() => { const id = setTimeout(() => lsSet(LS_DRAFT, text), 400); return () => clearTimeout(id); }, [text]);
     const doSave = () => {
@@ -229,7 +228,7 @@ export function App() {
 
     return <div className="s7">
         <div className="s7-top">
-            <div className="s7-title">{'S7-300 Simulator (STL)'}<small>{'Siemens STEP 7 Classic | Version 1.9.0'}</small></div>
+            <div className="s7-title">{'S7-300 Simulator (STL)'}<small>{'Siemens STEP 7 Classic | Version 1.9.1'}</small></div>
             <div className={'s7-mode ' + (running ? 'run' : 'stop')}>{running ? 'RUN' : 'STOP'}</div>
         </div>
 
