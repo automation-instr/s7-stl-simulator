@@ -1,8 +1,19 @@
-import subprocess, json, re, sys
-ver = sys.argv[1] if len(sys.argv)>1 else '1'
-subprocess.check_call(['/usr/lib/node_modules/tsx/node_modules/esbuild/bin/esbuild','src/standalone.tsx','--bundle','--minify','--target=es2019','--define:process.env.NODE_ENV="production"','--outfile=/tmp/pwa/app.js','--log-level=warning'])
-css=open('src/style.css').read(); js=open('/tmp/pwa/app.js').read().replace('</script','<\\/script')
-html=f'''<!doctype html>
+import subprocess, sys, shutil, re
+
+ver = sys.argv[1] if len(sys.argv) > 1 else '1'
+subprocess.check_call(['/usr/lib/node_modules/tsx/node_modules/esbuild/bin/esbuild', 'src/standalone.tsx', '--bundle', '--minify',
+                       '--target=es2019', '--define:process.env.NODE_ENV="production"', '--outfile=/tmp/pwa/app.js', '--log-level=warning'])
+
+css = open('src/style.css').read()
+shutil.copyfile('/tmp/pwa/app.js', 'app.js')
+
+# ---- password gate -------------------------------------------------------
+# Only the SHA-256 of the password is kept here, never the password itself.
+GATE_KEY = 's7stl.unlock'
+GATE_SALT = 's7stl-gate-v1|'
+GATE_HASH = 'db69592ff5efb0cbeb93b82dc6f0e2aaad6f4887b73323f8d600b7ab5be16f9d'
+
+app = f'''<!doctype html>
 <html lang="en" dir="ltr">
 <head>
 <meta charset="utf-8">
@@ -22,10 +33,78 @@ body{{overscroll-behavior-y:contain;}}
 </style>
 </head>
 <body><div id="root"></div>
-<script>{js}</script>
+<script>
+(function(){{ if (sessionStorage.getItem('{GATE_KEY}') !== '1') {{ location.replace('./'); return; }}
+var s = document.createElement('script'); s.src = 'app.js'; document.body.appendChild(s); }})();
+</script>
 </body></html>'''
-open('index.html','w').write(html)
-sw=open('sw.js').read()
-sw=re.sub(r"const V='[^']*'","const V='s7stl-v"+ver+"'",sw)
-open('sw.js','w').write(sw)
-print('built v'+ver, len(html))
+open('app.html', 'w').write(app)
+
+gate = f'''<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>S7-300 STL Simulator</title>
+<meta name="theme-color" content="#0d1117">
+<meta name="robots" content="noindex,nofollow">
+<style>
+:root{{color-scheme:dark}}
+*{{box-sizing:border-box}}
+body{{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0b0f14;color:#e6edf3;
+font:16px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:24px;overscroll-behavior-y:contain}}
+.card{{width:100%;max-width:380px;background:#111823;border:1px solid #223040;border-radius:14px;padding:26px 22px 22px;
+box-shadow:0 18px 40px rgba(0,0,0,.45)}}
+.badge{{width:38px;height:38px;border-radius:9px;background:#1f6feb;color:#fff;display:flex;align-items:center;justify-content:center;
+font-weight:700;font-size:15px;margin-bottom:14px}}
+h1{{font-size:19px;margin:0 0 4px;font-weight:650}}
+.sub{{font-size:13px;color:#8b98a5;margin:0 0 22px}}
+label{{display:block;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:#8b98a5;margin-bottom:8px}}
+input{{width:100%;padding:14px 14px;font-size:17px;border-radius:10px;border:1px solid #2b3a4a;background:#0d141d;color:#e6edf3;
+outline:none;-webkit-appearance:none;appearance:none}}
+input:focus{{border-color:#1f6feb;box-shadow:0 0 0 3px rgba(31,111,235,.22)}}
+button{{width:100%;margin-top:14px;padding:14px;font-size:16px;font-weight:600;border-radius:10px;border:0;background:#238636;color:#fff;
+cursor:pointer;-webkit-appearance:none;appearance:none}}
+button:active{{background:#1d702d}}
+button[disabled]{{opacity:.6}}
+.msg{{min-height:20px;margin-top:12px;font-size:14px;color:#ff8a80}}
+.card.bad{{animation:sh .28s}}
+@keyframes sh{{25%{{transform:translateX(-7px)}}75%{{transform:translateX(7px)}}}}
+</style>
+</head>
+<body>
+<form class="card" id="f" autocomplete="off">
+  <div class="badge">S7</div>
+  <h1>S7-300 Simulator (STL)</h1>
+  <p class="sub">Siemens STEP 7 Classic. Enter the password to open the simulator.</p>
+  <label for="p">Password</label>
+  <input id="p" name="p" type="password" inputmode="text" autocapitalize="off" autocorrect="off" spellcheck="false" autofocus>
+  <button id="b" type="submit">Unlock</button>
+  <div class="msg" id="m" role="alert"></div>
+</form>
+<script>
+(function(){{
+  var KEY='{GATE_KEY}', SALT='{GATE_SALT}', HASH='{GATE_HASH}';
+  var f=document.getElementById('f'), p=document.getElementById('p'), b=document.getElementById('b'), m=document.getElementById('m');
+  if (sessionStorage.getItem(KEY)==='1') {{ location.replace('./app.html'); return; }}
+  function hex(buf){{ var a=new Uint8Array(buf), s=''; for (var i=0;i<a.length;i++) s+=(a[i]<16?'0':'')+a[i].toString(16); return s; }}
+  function fail(t){{ m.textContent=t; f.classList.remove('bad'); void f.offsetWidth; f.classList.add('bad'); p.select(); }}
+  f.addEventListener('submit', function(e){{
+    e.preventDefault();
+    var pw=p.value; if(!pw){{ fail('Enter the password.'); return; }}
+    if(!(window.crypto && crypto.subtle && crypto.subtle.digest)){{ m.textContent='This browser cannot check the password on this page.'; return; }}
+    b.disabled=true; m.textContent='';
+    crypto.subtle.digest('SHA-256', new TextEncoder().encode(SALT+pw)).then(function(d){{
+      if (hex(d)===HASH) {{ try{{ sessionStorage.setItem(KEY,'1'); }}catch(_){{}} location.replace('./app.html'); }}
+      else {{ b.disabled=false; fail('Wrong password.'); }}
+    }}).catch(function(){{ b.disabled=false; m.textContent='Could not check the password. Try again.'; }});
+  }});
+}})();
+</script>
+</body></html>'''
+open('index.html', 'w').write(gate)
+
+sw = open('sw.js').read()
+sw = re.sub(r"const V='[^']*'", "const V='s7stl-v" + ver + "'", sw)
+open('sw.js', 'w').write(sw)
+print('built v' + ver, 'gate', len(gate), 'app', len(app))
